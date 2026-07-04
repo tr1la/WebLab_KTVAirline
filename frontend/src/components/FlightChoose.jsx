@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { searchFlights, getTransactionsByFlight, getUserByEmail } from "../services/api";
+import { useNavigate } from "react-router-dom";
+import { searchFlights, getTransactionsByFlight, getUserByEmail, getFlightAvailability } from "../services/api";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { toast } from "react-toastify";
 import { vi } from "date-fns/locale";
@@ -9,6 +9,41 @@ import { FaUser, FaEnvelope, FaPhone, FaCalendar, FaVenusMars, FaMapMarkerAlt } 
 import { MdOutlineClose } from "react-icons/md";
 import { useAuth } from "../contexts/AuthContext";
 import Signin from "../container/Signin";
+
+const SEAT_CLASS_OPTIONS = [
+  {
+    type: "ECONOMY",
+    label: "Economy",
+    bgClass: "bg-green-50",
+    hoverClass: "hover:bg-green-100",
+    badgeClass: "bg-green-700",
+  },
+  {
+    type: "COMFORT",
+    label: "Comfort",
+    bgClass: "bg-cyan-50",
+    hoverClass: "hover:bg-cyan-100",
+    badgeClass: "bg-cyan-700",
+  },
+  {
+    type: "BUSINESS",
+    label: "Business",
+    bgClass: "bg-blue-50",
+    hoverClass: "hover:bg-blue-100",
+    badgeClass: "bg-blue-700",
+  },
+  {
+    type: "FIRST",
+    label: "First Class",
+    bgClass: "bg-purple-50",
+    hoverClass: "hover:bg-purple-100",
+    badgeClass: "bg-purple-700",
+  },
+];
+
+const getSeatClassField = (seatType, suffix) => {
+  return `${seatType.toLowerCase()}${suffix}`;
+};
 
 const PassengerModal = ({ isOpen, onClose, flightInfo, selectedClass, onSubmit, searchData }) => {
   const { user } = useAuth();
@@ -267,70 +302,26 @@ const FlightChoose = ({ searchData }) => {
 
   const calculateAvailableSeats = async (flightId) => {
     try {
-      // Lấy tất cả transactions của chuyến bay
-      const transactionsResponse = await getTransactionsByFlight(flightId);
-      console.log('Transactions response:', transactionsResponse); // Debug log
+      const availabilityResponse = await getFlightAvailability(flightId);
+      const availability = availabilityResponse.data || {};
 
-      // Số ghế trống của mỗi hạng
-      const availableSeats = {
-        ECONOMY: 0,
-        BUSINESS: 0,
-        FIRST: 0
-      };
+      const result = SEAT_CLASS_OPTIONS.reduce((seatInfo, seatClass) => {
+        const classAvailability = availability[seatClass.type] || {};
+        return {
+          ...seatInfo,
+          [getSeatClassField(seatClass.type, "SeatsAvailable")]: Number(classAvailability.availableSeats || 0),
+          [getSeatClassField(seatClass.type, "Price")]: classAvailability.price || 0,
+        };
+      }, {});
 
-      // Lưu giá vé cho từng hạng
-      const seatPrices = {
-        ECONOMY: 0,
-        BUSINESS: 0,
-        FIRST: 0
-      };
-
-      // Đếm số ghế FREE và lấy giá vé
-      if (transactionsResponse.data) {
-        transactionsResponse.data.forEach(transaction => {
-          const seatClass = transaction.seat?.type;
-          console.log('Transaction:', transaction); // Debug log
-          console.log('Seat class:', seatClass); // Debug log
-          
-          // Chỉ xử lý nếu có seatClass và là một trong các hạng ghế hợp lệ
-          if (seatClass && ['ECONOMY', 'BUSINESS', 'FIRST'].includes(seatClass)) {
-            // Nếu là ghế FREE thì tăng số ghế trống
-            if (transaction.status === 'FREE') {
-              availableSeats[seatClass]++;
-              
-              // Lưu giá vé nếu chưa có
-              if (seatPrices[seatClass] === 0) {
-                seatPrices[seatClass] = transaction.price || 0;
-              }
-            }
-          }
-        });
-      }
-
-      console.log('Available seats:', availableSeats); // Debug log
-      console.log('Seat prices:', seatPrices); // Debug log
-
-      const result = {
-        economySeatsAvailable: availableSeats.ECONOMY,
-        businessSeatsAvailable: availableSeats.BUSINESS,
-        firstSeatsAvailable: availableSeats.FIRST,
-        economyPrice: seatPrices.ECONOMY,
-        businessPrice: seatPrices.BUSINESS,
-        firstPrice: seatPrices.FIRST
-      };
-
-      console.log('Result:', result); // Debug log
       return result;
     } catch (error) {
       console.error('Error calculating available seats:', error);
-      return {
-        economySeatsAvailable: 0,
-        businessSeatsAvailable: 0,
-        firstSeatsAvailable: 0,
-        economyPrice: 0,
-        businessPrice: 0,
-        firstPrice: 0
-      };
+      return SEAT_CLASS_OPTIONS.reduce((seatInfo, seatClass) => ({
+        ...seatInfo,
+        [getSeatClassField(seatClass.type, "SeatsAvailable")]: 0,
+        [getSeatClassField(seatClass.type, "Price")]: 0,
+      }), {});
     }
   };
 
@@ -367,9 +358,9 @@ const FlightChoose = ({ searchData }) => {
             seatsInfo[flight.id] = seats;
             
             // Kiểm tra nếu ít nhất một hạng ghế có đủ chỗ
-            const hasEnoughSeats = seats.economySeatsAvailable >= totalPassengers ||
-                                 seats.businessSeatsAvailable >= totalPassengers ||
-                                 seats.firstSeatsAvailable >= totalPassengers;
+            const hasEnoughSeats = SEAT_CLASS_OPTIONS.some((seatClass) =>
+              seats[getSeatClassField(seatClass.type, "SeatsAvailable")] >= totalPassengers
+            );
                                      
             // Chỉ thêm chuyến bay nếu có ít nhất một hạng ghế đủ chỗ
             if (hasEnoughSeats) {
@@ -440,14 +431,16 @@ const FlightChoose = ({ searchData }) => {
         return;
       }
 
-      // Lọc các ghế FREE theo hạng ghế
-      const freeSeats = transactionsResponse.data.filter(
-        transaction => transaction.status === 'FREE' && 
-                      transaction.seat?.type === seatClass
+      // Lọc các ghế còn có thể đặt theo hạng ghế
+      const availableSeats = transactionsResponse.data.filter(
+        transaction => transaction.seat?.type === seatClass
+                      && (['FREE', 'CANCEL'].includes(transaction.status)
+                        || (transaction.status === 'HOLD'
+                          && String(transaction.user?.id) === String(user?.id)))
       );
 
       // Lấy đủ số ghế cần thiết
-      const seats = freeSeats.slice(0, searchData.adult + searchData.minor);
+      const seats = availableSeats.slice(0, searchData.adult + searchData.minor);
       setSelectedSeats(seats);
       setSelectedFlight(flight);
       setSelectedClass(seatClass);
@@ -465,7 +458,7 @@ const FlightChoose = ({ searchData }) => {
       passengers: passengers,
       seatClass: selectedClass,
       selectedSeats: selectedSeats,
-      price: seatPrice[selectedFlight.id][`${selectedClass.toLowerCase()}Price`]
+      price: seatPrice[selectedFlight.id][getSeatClassField(selectedClass, "Price")]
     };
 
     // Store booking data in localStorage for next steps
@@ -486,14 +479,7 @@ const FlightChoose = ({ searchData }) => {
       CANCELLED: { bg: "bg-red-100", text: "text-red-800", border: "border-red-200" }
     };
     const status = statusColors[flight.status] || statusColors.OPEN;
-    const flightSeats = seatPrice[flight.id] || {
-      economySeatsAvailable: 0,
-      businessSeatsAvailable: 0,
-      firstSeatsAvailable: 0,
-      economyPrice: 0,
-      businessPrice: 0,
-      firstPrice: 0
-    };
+    const flightSeats = seatPrice[flight.id] || {};
     const totalPassengers = searchData.adult + searchData.minor;
 
     return (
@@ -552,60 +538,32 @@ const FlightChoose = ({ searchData }) => {
 
           {/* Flight Details and Ticket Classes */}
           <div className="mt-6 pt-6 border-t border-gray-100">
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              {/* Economy Class */}
-              <button 
-                onClick={() => handleClassSelection(flight, 'ECONOMY')}
-                disabled={flightSeats.economySeatsAvailable < totalPassengers || flight.status !== 'OPEN'}
-                className={`relative bg-green-50 rounded-lg p-4 text-left transition-all
-                  ${flightSeats.economySeatsAvailable >= totalPassengers && flight.status === 'OPEN' 
-                    ? 'hover:bg-green-100 cursor-pointer' 
-                    : 'opacity-50 cursor-not-allowed'}`}
-              >
-                <div className="absolute top-2 right-2 bg-green-700 text-white text-xs px-2 py-1 rounded">
-                  {flightSeats.economySeatsAvailable} chỗ còn lại
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-1">Economy</h3>
-                <p className="text-xl font-bold text-[#1A1D1F]">
-                  {formatCurrency(flightSeats.economyPrice)} <span className="text-sm text-gray-500">VND</span>
-                </p>
-              </button>
+            <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-2 xl:grid-cols-4">
+              {SEAT_CLASS_OPTIONS.map((seatClass) => {
+                const availableSeats = flightSeats[getSeatClassField(seatClass.type, "SeatsAvailable")] || 0;
+                const price = flightSeats[getSeatClassField(seatClass.type, "Price")] || 0;
+                const canSelectSeatClass = availableSeats >= totalPassengers && flight.status === 'OPEN';
 
-              {/* Business Class */}
-              <button 
-                onClick={() => handleClassSelection(flight, 'BUSINESS')}
-                disabled={flightSeats.businessSeatsAvailable < totalPassengers || flight.status !== 'OPEN'}
-                className={`relative bg-blue-50 rounded-lg p-4 text-left transition-all
-                  ${flightSeats.businessSeatsAvailable >= totalPassengers && flight.status === 'OPEN'
-                    ? 'hover:bg-blue-100 cursor-pointer' 
-                    : 'opacity-50 cursor-not-allowed'}`}
-              >
-                <div className="absolute top-2 right-2 bg-blue-700 text-white text-xs px-2 py-1 rounded">
-                  {flightSeats.businessSeatsAvailable} chỗ còn lại
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-1">Business</h3>
-                <p className="text-xl font-bold text-[#1A1D1F]">
-                  {formatCurrency(flightSeats.businessPrice)} <span className="text-sm text-gray-500">VND</span>
-                </p>
-              </button>
-
-              {/* First Class */}
-              <button 
-                onClick={() => handleClassSelection(flight, 'FIRST')}
-                disabled={flightSeats.firstSeatsAvailable < totalPassengers || flight.status !== 'OPEN'}
-                className={`relative bg-purple-50 rounded-lg p-4 text-left transition-all
-                  ${flightSeats.firstSeatsAvailable >= totalPassengers && flight.status === 'OPEN'
-                    ? 'hover:bg-purple-100 cursor-pointer' 
-                    : 'opacity-50 cursor-not-allowed'}`}
-              >
-                <div className="absolute top-2 right-2 bg-purple-700 text-white text-xs px-2 py-1 rounded">
-                  {flightSeats.firstSeatsAvailable} chỗ còn lại
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-1">First Class</h3>
-                <p className="text-xl font-bold text-[#1A1D1F]">
-                  {formatCurrency(flightSeats.firstPrice)} <span className="text-sm text-gray-500">VND</span>
-                </p>
-              </button>
+                return (
+                  <button
+                    key={seatClass.type}
+                    onClick={() => handleClassSelection(flight, seatClass.type)}
+                    disabled={!canSelectSeatClass}
+                    className={`relative rounded-lg p-4 text-left transition-all ${seatClass.bgClass}
+                      ${canSelectSeatClass
+                        ? `${seatClass.hoverClass} cursor-pointer`
+                        : 'opacity-50 cursor-not-allowed'}`}
+                  >
+                    <div className={`absolute top-2 right-2 text-white text-xs px-2 py-1 rounded ${seatClass.badgeClass}`}>
+                      {availableSeats} chỗ còn lại
+                    </div>
+                    <h3 className="pr-20 text-lg font-semibold text-gray-800 mb-1">{seatClass.label}</h3>
+                    <p className="text-xl font-bold text-[#1A1D1F]">
+                      {formatCurrency(price)} <span className="text-sm text-gray-500">VND</span>
+                    </p>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex items-center justify-between">

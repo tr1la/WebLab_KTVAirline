@@ -32,7 +32,7 @@ public class NewsServiceImpl implements NewsService {
 
     @Override
     public News findById(Integer id) {
-        return newsRepository.findById(String.valueOf(id)).get();
+        return newsRepository.findByIdAndIsDeletedFalse(id);
     }
 
     @Override

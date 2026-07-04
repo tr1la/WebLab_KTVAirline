@@ -4,8 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.constant.TransactionStatusEnum;
 
-import java.sql.Date;
-import java.util.List;
+import java.util.Date;
 
 @Table(name = "TRANSACTION")
 @Entity
@@ -32,4 +31,10 @@ public class Transaction extends BaseObject{
 
     @Column(name = "PRICE", nullable = false)
     private String price;
+
+    @Column(name = "QR_CODE")
+    private String qrCode;
+
+    @Column(name = "HOLD_EXPIRES_AT")
+    private Date holdExpiresAt;
 }

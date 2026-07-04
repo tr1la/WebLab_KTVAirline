@@ -19,13 +19,12 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     public List<Transaction> findByConditions(String flightName, Date dateFrom, Date dateTo, TransactionStatusEnum status,
                                               Pageable pageable) {
-        return transactionRepository.findByFlightNameContainsAndAndCreateDateBetweenAndStatusAndIsDeletedFalse(
-                flightName, dateFrom, dateTo, status, pageable);
+        return transactionRepository.searchTransactions(flightName, dateFrom, dateTo, status, pageable);
     }
 
     @Override
     public Transaction findById(Integer id) {
-        return transactionRepository.findById(String.valueOf(id)).get();
+        return transactionRepository.findByIdAndIsDeletedFalse(id);
     }
 
     @Override

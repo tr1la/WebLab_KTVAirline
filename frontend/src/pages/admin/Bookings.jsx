@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { FaSearch, FaPlus, FaTrash, FaEdit } from 'react-icons/fa';
+import { FaSearch, FaPlus, FaTrash, FaEdit, FaTimes } from 'react-icons/fa';
 import { getTransactions, getTransactionsByConditions, getTransactionsByStatus, createTransaction, getFlights, createSeat, updateTransaction, updateSeat, deleteTransaction } from '../../services/api';
 import { toast } from 'react-toastify';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
 const BookingFilters = ({ onFilter }) => {
   const [filters, setFilters] = useState({
@@ -21,8 +22,13 @@ const BookingFilters = ({ onFilter }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md mb-8">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <form onSubmit={handleSubmit} className="admin-panel mb-6">
+      <div className="admin-panel-header">
+        <h2 className="text-xl font-bold">Bộ lọc đặt chỗ</h2>
+        <p className="text-sm text-[#6E7491] mt-1">Lọc theo chuyến bay, ngày mua và trạng thái vé.</p>
+      </div>
+      <div className="admin-panel-body">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Chuyến bay</label>
           <input
@@ -61,42 +67,45 @@ const BookingFilters = ({ onFilter }) => {
             <option value="BOOKED">Đã đặt</option>
             <option value="ONGOING">Đang thực hiện</option>
             <option value="FREE">Tự do</option>
+            <option value="HOLD">Đang giữ chỗ</option>
             <option value="ONTIME">Đúng giờ</option>
             <option value="DELAY">Delay</option>
             <option value="CANCEL">Đã hủy</option>
           </select>
         </div>
-      </div>
-      <div className="mt-4">
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center"
-        >
-          <FaSearch className="mr-2" />
-          Tìm kiếm
-        </button>
+        </div>
+        <div className="mt-4">
+          <button
+            type="submit"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+          >
+            <FaSearch className="mr-2" />
+            Tìm kiếm
+          </button>
+        </div>
       </div>
     </form>
   );
 };
 
 const BookingStats = ({ data }) => {
+  const isRevenueBooking = (booking) => !['FREE', 'CANCEL', 'HOLD'].includes(booking.status);
   const stats = {
     totalBookings: data.length,
     totalRevenue: data.reduce((sum, booking) => {
-      if (booking.status === 'FREE' || booking.status === 'CANCEL') {
+      if (!isRevenueBooking(booking)) {
         return sum;
       }
       const price = parseFloat(booking.price || 0);
       return sum + (isNaN(price) ? 0 : price);
     }, 0),
     averageBookingValue: data.reduce((sum, booking) => {
-      if (booking.status === 'FREE' || booking.status === 'CANCEL') {
+      if (!isRevenueBooking(booking)) {
         return sum;
       }
       const price = parseFloat(booking.price || 0);
       return sum + (isNaN(price) ? 0 : price);
-    }, 0) / data.filter(booking => booking.status !== 'FREE' && booking.status !== 'CANCEL').length || 0
+    }, 0) / data.filter(isRevenueBooking).length || 0
   };
 
   const formatCurrency = (amount) => {
@@ -107,18 +116,18 @@ const BookingStats = ({ data }) => {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-      <div className="bg-white p-6 rounded-lg shadow-md">
+    <div className="admin-stat-grid">
+      <div className="admin-stat-card">
         <h3 className="text-lg font-medium text-gray-900">Tổng đơn đặt</h3>
         <p className="mt-2 text-3xl font-bold text-blue-600">{stats.totalBookings}</p>
       </div>
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="admin-stat-card">
         <h3 className="text-lg font-medium text-gray-900">Doanh thu</h3>
         <p className="mt-2 text-3xl font-bold text-green-600">
           {formatCurrency(stats.totalRevenue)}
         </p>
       </div>
-      <div className="bg-white p-6 rounded-lg shadow-md">
+      <div className="admin-stat-card">
         <h3 className="text-lg font-medium text-gray-900">Trung bình/đơn</h3>
         <p className="mt-2 text-3xl font-bold text-purple-600">
           {formatCurrency(stats.averageBookingValue)}
@@ -128,7 +137,7 @@ const BookingStats = ({ data }) => {
   );
 };
 
-const BookingForm = ({ onSubmit, initialData = null, onSuccess }) => {
+const BookingForm = ({ onSubmit, initialData = null, onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
     flightId: '',
     seatName: '',
@@ -217,6 +226,7 @@ const BookingForm = ({ onSubmit, initialData = null, onSuccess }) => {
           createDate: initialData.createDate,
           updateBy: 'admin',
           updateDate: new Date().toISOString(),
+          user: initialData.user,
           flight: initialData.flight,
           seat: initialData.seat,
           status: formData.status,
@@ -268,9 +278,19 @@ const BookingForm = ({ onSubmit, initialData = null, onSuccess }) => {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
-      <h3 className="text-xl font-semibold mb-4">
-        {initialData ? 'Chỉnh sửa đặt chỗ' : 'Thêm đặt chỗ mới'}
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold">
+          {initialData ? 'Chỉnh sửa đặt chỗ' : 'Thêm đặt chỗ mới'}
+        </h3>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-gray-400 hover:text-gray-700"
+          title="Đóng"
+        >
+          <FaTimes />
+        </button>
+      </div>
       
       <div className="space-y-4">
         <div>
@@ -372,6 +392,7 @@ const BookingForm = ({ onSubmit, initialData = null, onSuccess }) => {
                 <option value="BOOKED">Đã đặt</option>
                 <option value="ONGOING">Đang thực hiện</option>
                 <option value="FREE">Tự do</option>
+                <option value="HOLD">Đang giữ chỗ</option>
                 <option value="ONTIME">Đúng giờ</option>
                 <option value="DELAY">Delay</option>
                 <option value="CANCEL">Đã hủy</option>
@@ -536,27 +557,48 @@ const Bookings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Quản lý đặt chỗ</h1>
-          <button
-            onClick={handleAddNew}
-            className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-            disabled={loading}
-          >
-            <FaPlus className="mr-2" />
-            Thêm đặt chỗ
-          </button>
-        </div>
+    <div className="admin-page">
+      <div className="admin-page-container">
+        <AdminPageHeader
+          title="Quản lý đặt chỗ"
+          description="Theo dõi giao dịch vé, trạng thái ghế, doanh thu và các thay đổi trong vòng đời đặt chỗ."
+          actions={(
+            <button
+              onClick={handleAddNew}
+              className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+              disabled={loading}
+            >
+              <FaPlus className="mr-2" />
+              Thêm đặt chỗ
+            </button>
+          )}
+        />
 
         <BookingFilters onFilter={handleFilter} />
         <BookingStats data={bookings} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="overflow-x-auto">
+        <div className="admin-stack-layout">
+          {showForm && (
+            <div className="admin-stack-block">
+              <BookingForm
+                onSubmit={handleSubmit}
+                initialData={editingBooking}
+                onSuccess={handleSuccess}
+                onCancel={() => {
+                  setShowForm(false);
+                  setEditingBooking(null);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="admin-main-column">
+            <div className="admin-panel">
+              <div className="admin-panel-header">
+                <h2 className="text-xl font-bold">Danh sách đặt chỗ</h2>
+                <p className="text-sm text-[#6E7491] mt-1">{bookings.length} vé đang hiển thị</p>
+              </div>
+              <div className="admin-table-wrap">
                 {loading ? (
                   <div className="flex justify-center items-center h-32">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -610,6 +652,8 @@ const Bookings = () => {
                                         ? 'bg-yellow-100 text-yellow-800'
                                         : booking.status === 'FREE'
                                         ? 'bg-green-100 text-green-800'
+                                        : booking.status === 'HOLD'
+                                        ? 'bg-purple-100 text-purple-800'
                                         : booking.status === 'ONTIME'
                                         ? 'bg-green-100 text-green-800'
                                         : booking.status === 'DELAY'
@@ -623,6 +667,8 @@ const Bookings = () => {
                                       ? 'Đang thực hiện'
                                       : booking.status === 'FREE'
                                       ? 'Tự do'
+                                      : booking.status === 'HOLD'
+                                      ? 'Đang giữ chỗ'
                                       : booking.status === 'ONTIME'
                                       ? 'Đúng giờ'
                                       : booking.status === 'DELAY'
@@ -699,20 +745,10 @@ const Bookings = () => {
               </div>
             </div>
           </div>
-
-          {showForm && (
-            <div className="lg:col-span-1">
-              <BookingForm
-                onSubmit={handleSubmit}
-                initialData={editingBooking}
-                onSuccess={handleSuccess}
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 };
 
-export default Bookings; 
+export default Bookings;

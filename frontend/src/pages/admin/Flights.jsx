@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { getFlights, createFlight, updateFlight, deleteFlight, getPlanes, getTransactionsByConditions, getTransactionsByFlight, updateTransaction } from '../../services/api';
 import { toast } from 'react-toastify';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
-const FlightForm = ({ onSubmit, initialData = null, planes = [] }) => {
+const FlightForm = ({ onSubmit, initialData = null, planes = [], onCancel }) => {
   console.log('Initial planes:', planes);
   console.log('Initial data:', initialData);
 
@@ -92,9 +93,19 @@ const FlightForm = ({ onSubmit, initialData = null, planes = [] }) => {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
-      <h3 className="text-xl font-semibold mb-4">
-        {initialData ? 'Chỉnh sửa chuyến bay' : 'Thêm chuyến bay mới'}
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold">
+          {initialData ? 'Chỉnh sửa chuyến bay' : 'Thêm chuyến bay mới'}
+        </h3>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-gray-400 hover:text-gray-700"
+          title="Đóng"
+        >
+          <FaTimes />
+        </button>
+      </div>
       
       <div className="space-y-4">
         <div>
@@ -384,6 +395,7 @@ const Flights = () => {
             createDate: transaction.createDate,
             updateBy: 'admin',
             updateDate: new Date().toISOString(),
+            user: transaction.user,
             flight: updatedFlight,
             seat: transaction.seat,
             status: isTimeChanged ? 'DELAY' : transaction.status,
@@ -470,24 +482,45 @@ const Flights = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Quản lý chuyến bay</h1>
-          <button
-            onClick={handleAddNew}
-            className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-            disabled={loading}
-          >
-            <FaPlus className="mr-2" />
-            Thêm chuyến bay
-          </button>
-        </div>
+    <div className="admin-page">
+      <div className="admin-page-container">
+        <AdminPageHeader
+          title="Quản lý chuyến bay"
+          description="Điều phối lịch bay, hành trình, tàu bay khai thác, cổng ra máy bay và trạng thái mở bán."
+          actions={(
+            <button
+              onClick={handleAddNew}
+              className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+              disabled={loading}
+            >
+              <FaPlus className="mr-2" />
+              Thêm chuyến bay
+            </button>
+          )}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="overflow-x-auto">
+        <div className="admin-stack-layout">
+          {showForm && (
+            <div className="admin-stack-block">
+              <FlightForm
+                onSubmit={handleSubmit}
+                initialData={editingFlight}
+                planes={planes}
+                onCancel={() => {
+                  setShowForm(false);
+                  setEditingFlight(null);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="admin-main-column">
+            <div className="admin-panel">
+              <div className="admin-panel-header">
+                <h2 className="text-xl font-bold">Lịch bay</h2>
+                <p className="text-sm text-[#6E7491] mt-1">{flights.length} chuyến bay đang hiển thị</p>
+              </div>
+              <div className="admin-table-wrap">
                 {loading ? (
                   <div className="flex justify-center items-center h-32">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -573,16 +606,6 @@ const Flights = () => {
               </div>
             </div>
           </div>
-
-          {showForm && (
-            <div className="lg:col-span-1">
-              <FlightForm
-                onSubmit={handleSubmit}
-                initialData={editingFlight}
-                planes={planes}
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>

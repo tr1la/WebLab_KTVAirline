@@ -39,6 +39,35 @@ KTVAirline là hệ thống quản lý hàng không được xây dựng bằng 
 
 ## Hướng Dẫn Cài Đặt
 
+### Chạy bằng Docker cho phát triển
+Nếu đang chạy bộ container production trước đó, dừng lại trước để tránh trùng port:
+```bash
+docker compose down
+```
+
+Khởi chạy môi trường dev:
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+- Frontend chạy Vite dev server tại `http://localhost:3000` và tự hot reload khi sửa file trong `frontend/src`.
+- Backend chạy Maven trong container tại `http://localhost:8080`; khi sửa Java/resources, container tự compile lại và Spring Boot DevTools restart app.
+- MySQL chạy trong container, publish ra `localhost:3307`.
+
+### Cấu Hình Gửi Email
+Backend mặc định dùng Gmail `lampestdoo@gmail.com` để gửi email. Tạo Gmail App Password cho tài khoản này, rồi tạo file `.env` từ `.env.example` và thay `MAIL_PASSWORD` bằng app password thật.
+
+Chạy bằng Docker Compose:
+```bash
+cp .env.example .env
+docker compose -f docker-compose.dev.yml up
+```
+
+Chạy backend trực tiếp bằng Maven:
+```bash
+MAIL_USERNAME=lampestdoo@gmail.com MAIL_PASSWORD='app-password-cua-ban' mvn spring-boot:run
+```
+
 ### Cài Đặt Backend
 1. Clone dự án:
    ```bash
@@ -78,7 +107,7 @@ KTVAirline là hệ thống quản lý hàng không được xây dựng bằng 
 ## Tài Liệu API
 Tài liệu API được cung cấp thông qua giao diện Swagger UI tại địa chỉ:
 ```
-http://localhost:8080/swagger-ui.html
+http://localhost:8080/swagger-ui
 ```
 
 ## Kiểm Thử

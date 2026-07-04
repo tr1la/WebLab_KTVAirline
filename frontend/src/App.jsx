@@ -18,12 +18,14 @@ import AdminLayout from "./components/admin/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import News from "./pages/admin/News";
 import NewsDetail from "./pages/NewsDetail";
+import AdminPromotions from "./pages/admin/Promotions";
 import Planes from "./pages/admin/Planes";
 import AdminFlights from "./pages/admin/Flights";
 import Bookings from "./pages/admin/Bookings";
 import AllFlightDeals from './pages/AllFlightDeals';
 import AllPlaces from './pages/AllPlaces';
 import AllNews from './pages/AllNews';
+import AllPromotions from './pages/AllPromotions';
 import PlaceDetail from './pages/PlaceDetail';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -52,6 +54,7 @@ const App = () => {
                     }>
                         <Route index element={<Dashboard />} />
                         <Route path="news" element={<News />} />
+                        <Route path="promotions" element={<AdminPromotions />} />
                         <Route path="planes" element={<Planes />} />
                         <Route path="flights" element={<AdminFlights />} />
                         <Route path="bookings" element={<Bookings />} />
@@ -71,6 +74,7 @@ const App = () => {
                         <Route path="news/:id" element={<NewsDetail />} />
                         <Route path="all-flight-deals" element={<AllFlightDeals />} />
                         <Route path="all-places" element={<AllPlaces />} />
+                        <Route path="promotions" element={<AllPromotions />} />
                         <Route path="all-news" element={<AllNews />} />
                         <Route path="news-detail" element={<NewsDetail />} />
                         <Route path="place-detail" element={<PlaceDetail />} />

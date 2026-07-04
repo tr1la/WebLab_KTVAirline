@@ -2,8 +2,7 @@ import { useState } from "react";
 import { MdOutlineClose } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import axios from "axios";
-import { forgotPassword } from "../services/api";
+import { forgotPassword, login } from "../services/api";
 import { FaSpinner, FaCheckCircle, FaEnvelope, FaKey } from "react-icons/fa";
 
 // eslint-disable-next-line react/prop-types
@@ -26,7 +25,7 @@ const Signin = ({ signin, setSignin, setSignup }) => {
 
         try {
             setIsSubmitting(true);
-            const response = await axios.post('http://localhost:8080/api/v1/auth/login', {
+            const response = await login({
                 email,
                 password
             });

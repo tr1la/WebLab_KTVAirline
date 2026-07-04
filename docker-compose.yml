@@ -1,0 +1,70 @@
+name: ktv-airline
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ktv-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ktvdb}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123}
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ktv-backend
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ktvdb}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-lampestdoo@gmail.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-lampestdoo@gmail.com}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-KTVAirline}
+      APP_UPLOAD_DIR: ${APP_UPLOAD_DIR:-/app/uploads}
+      APP_PROMOTION_IMPORT_DIR: ${APP_PROMOTION_IMPORT_DIR:-/app/imports/promotions}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-1800000}
+      JWT_ISSUER: ${JWT_ISSUER:-ktv-airline}
+      JWT_KEY_ID: ${JWT_KEY_ID:-ktv-airline-rs256}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./imports:/app/imports
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./templates:/app/templates
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ktv-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  mysql-data:

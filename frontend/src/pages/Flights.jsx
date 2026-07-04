@@ -1,6 +1,7 @@
 import { FlightDeals, Hero } from "../components"
 import Places from "../components/Places"
 import News from "../components/News"
+import Promotions from "../components/Promotions"
 
 const Flights = () => {
   return (
@@ -13,6 +14,9 @@ const Flights = () => {
     </div>
     <div className="mt-[60px]">
      <Places/>
+    </div>
+    <div className="mt-[60px]">
+     <Promotions/>
     </div>
     <div className="mt-[60px]">
      <News/>

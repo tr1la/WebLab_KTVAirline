@@ -1,12 +1,9 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8080/api/v1';
+const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // Add a request interceptor to add the auth token to requests
@@ -41,10 +38,22 @@ export const login = (credentials) => api.post('/auth/login', credentials);
 export const signup = (userData) => api.post('/auth/signup', userData);
 export const forgotPassword = (email) => api.post('/auth/forgetP', { email });
 export const changePassword = (data) => api.put('/auth/changeP', data);
+export const getProfileBasicInfoHtml = () => api.get('/profile/basic-info', {
+  headers: {
+    Accept: 'text/html',
+  },
+  responseType: 'text',
+});
 
 // User APIs
 export const getUserByEmail = (email) => api.get(`/user/email?email=${email}`);
 export const updateUser = (userData) => api.put('/user', userData);
+export const uploadUserAvatar = (userId, file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return api.post(`/user/${userId}/avatar`, formData);
+};
 
 // News APIs
 export const getNews = (page = 0, size = 10) => 
@@ -58,6 +67,46 @@ export const createNews = (newsData) => api.post('/news', newsData);
 export const updateNews = (newsData) => api.put('/news', newsData);
 export const updateNewsList = (newsList) => api.put('/news/list', newsList);
 export const deleteNews = (id) => api.delete(`/news?id=${id}`);
+
+// Promotion APIs
+export const getPromotions = (page = 0, size = 10) =>
+  api.get(`/promotion/all?pageNum=${page}&pageSize=${size}`);
+export const getPromotionById = (id) => api.get(`/promotion/id?id=${id}`);
+export const getPromotionsByCode = (code, page = 0, size = 10) =>
+  api.get(`/promotion/code?code=${encodeURIComponent(code)}&pageNum=${page}&pageSize=${size}`);
+export const getPromotionsByTitle = (title, page = 0, size = 10) =>
+  api.get(`/promotion/title?title=${encodeURIComponent(title)}&pageNum=${page}&pageSize=${size}`);
+export const getPromotionsByActive = (active, page = 0, size = 10) =>
+  api.get(`/promotion/active?active=${active}&pageNum=${page}&pageSize=${size}`);
+export const getPromotionsBySeatType = (seatType, page = 0, size = 10) =>
+  api.get(`/promotion/seat-type?seatType=${seatType}&pageNum=${page}&pageSize=${size}`);
+export const createPromotion = (promotionData) => api.post('/promotion', promotionData);
+export const updatePromotion = (promotionData) => api.put('/promotion', promotionData);
+export const updatePromotions = (promotionList) => api.put('/promotion/list', promotionList);
+export const deletePromotion = (id) => api.delete(`/promotion?id=${id}`);
+export const importPromotionXml = (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return api.post('/promotion/import-xml', formData);
+};
+
+// Booking APIs
+export const quoteBooking = (bookingData) => api.post('/booking/quote', bookingData);
+export const holdBooking = (bookingData) => api.post('/booking/hold', bookingData);
+export const applyBookingPromotion = (bookingData) => api.post('/booking/apply-promotion', bookingData);
+export const confirmBooking = (bookingData) => api.post('/booking/confirm', bookingData);
+export const saveBookingDraft = (bookingData) => api.post('/booking/draft/save', bookingData, {
+  headers: {
+    Accept: 'application/octet-stream',
+  },
+  responseType: 'blob',
+});
+export const importBookingDraft = (file) => api.post('/booking/draft/import', file, {
+  headers: {
+    'Content-Type': 'application/octet-stream',
+  },
+});
 
 // Planes APIs
 export const getPlanes = (page = 0, size = 10) => 
@@ -100,6 +149,8 @@ export const getTransactionsByConditions = (flightName, dateFrom, dateTo, status
   api.get(`/transaction/conditions?flightName=${encodeURIComponent(flightName)}&dateFrom=${dateFrom}&dateTo=${dateTo}&status=${status}&pageNum=${page}&pageSize=${size}`);
 export const getTransactionsByStatus = (status) => 
   api.get(`/transaction/status?statusEnum=${status}`);
+export const getFlightAvailability = (flightId) =>
+  api.get(`/transaction/flight/availability?flightId=${flightId}`);
 export const createTransaction = (transactionData) => 
   api.post('/transaction', transactionData);
 export const updateTransaction = (transactionData) => 
@@ -114,4 +165,4 @@ export const getTransactionsByFlight = (flightId) =>
 export const getUserById = (userId) => 
   api.get(`/user/id?id=${userId}`);
 
-export default api; 
+export default api;

@@ -2,66 +2,70 @@ package org.example.serviceImpl;
 
 import jakarta.mail.*;
 import jakarta.mail.internet.*;
-import lombok.NoArgsConstructor;
 import org.example.entity.Transaction;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
+import java.io.UnsupportedEncodingException;
 import java.util.Properties;
-@NoArgsConstructor
+
 public class EmailService {
-    private String username;
-    private String password;
+    private static final String DEFAULT_HOST = "smtp.gmail.com";
+    private static final int DEFAULT_PORT = 587;
+    private static final String DEFAULT_MAIL = "lampestdoo@gmail.com";
+    private static final String DEFAULT_FROM_NAME = "KTVAirline";
 
-    private Properties prop;
+    private final String username;
+    private final String password;
+    private final String fromAddress;
+    private final String fromName;
 
-    public EmailService(String host, int port, String username, String password) {
+    private final Properties prop;
+
+    public EmailService() {
+        this(
+                getEnv("MAIL_HOST", DEFAULT_HOST),
+                getIntEnv("MAIL_PORT", DEFAULT_PORT),
+                getEnv("MAIL_USERNAME", DEFAULT_MAIL),
+                getEnv("MAIL_PASSWORD", ""),
+                getEnv("MAIL_FROM", getEnv("MAIL_USERNAME", DEFAULT_MAIL)),
+                getEnv("MAIL_FROM_NAME", DEFAULT_FROM_NAME)
+        );
+    }
+
+    private EmailService(String host, int port, String username, String password, String fromAddress, String fromName) {
         prop = new Properties();
-        prop.put("mail.smtp.auth", true);
+        prop.put("mail.smtp.auth", "true");
         prop.put("mail.smtp.starttls.enable", "true");
         prop.put("mail.smtp.host", host);
-        prop.put("mail.smtp.port", port);
+        prop.put("mail.smtp.port", String.valueOf(port));
         prop.put("mail.smtp.ssl.trust", host);
 
         this.username = username;
         this.password = password;
-    }
-
-    public EmailService(String host, int port) {
-        prop = new Properties();
-        prop.put("mail.smtp.host", host);
-        prop.put("mail.smtp.port", port);
+        this.fromAddress = fromAddress;
+        this.fromName = fromName;
     }
 
     public void send(String text, String account) {
         try {
-            new EmailService("smtp.gmail.com", 587, "namvnucn1@gmail.com", "jtdy mdeo chpt boqn ")
-                    .sendMail(text, account);
+            sendMail(text, account);
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Cannot send password reset email.", e);
         }
     }
 
     public void sendNotification(Transaction transaction) {
         try {
-            new EmailService("smtp.gmail.com", 587, "namvnucn1@gmail.com", "jtdy mdeo chpt boqn ")
-                    .sendNoti(transaction);
+            sendNoti(transaction);
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Cannot send flight notification email.", e);
         }
     }
 
-    public void sendMail(String text, String account) throws Exception {
-
-        Session session = Session.getInstance(prop, new Authenticator() {
-            @Override
-            protected PasswordAuthentication getPasswordAuthentication() {
-                return new PasswordAuthentication(username, password);
-            }
-        });
+    public void sendMail(String text, String account) throws MessagingException, UnsupportedEncodingException {
+        Session session = createSession();
 
         Message message = new MimeMessage(session);
-        message.setFrom(new InternetAddress("namvnucn1@gmail.com"));
+        message.setFrom(getFromAddress());
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(account));
         message.setSubject("Lấy lại mật khẩu");
 
@@ -78,16 +82,11 @@ public class EmailService {
         Transport.send(message);
     }
 
-    public void sendNoti(Transaction transaction) throws Exception {
-        Session session = Session.getInstance(prop, new Authenticator() {
-            @Override
-            protected PasswordAuthentication getPasswordAuthentication() {
-                return new PasswordAuthentication(username, password);
-            }
-        });
+    public void sendNoti(Transaction transaction) throws MessagingException, UnsupportedEncodingException {
+        Session session = createSession();
 
         Message message = new MimeMessage(session);
-        message.setFrom(new InternetAddress("namvnucn1@gmail.com"));
+        message.setFrom(getFromAddress());
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(transaction.getUser().getEmail()));
         message.setSubject("Nhắc nhở về chuyến bay số " + transaction.getFlight().getName());
 
@@ -105,5 +104,49 @@ public class EmailService {
         message.setContent(multipart);
 
         Transport.send(message);
+    }
+
+    private Session createSession() {
+        if (isBlank(username) || isBlank(password) || isBlank(fromAddress)) {
+            throw new IllegalStateException("Missing mail config. Please set MAIL_USERNAME, MAIL_PASSWORD and MAIL_FROM.");
+        }
+
+        return Session.getInstance(prop, new Authenticator() {
+            @Override
+            protected PasswordAuthentication getPasswordAuthentication() {
+                return new PasswordAuthentication(username, password);
+            }
+        });
+    }
+
+    private InternetAddress getFromAddress() throws UnsupportedEncodingException {
+        InternetAddress address = new InternetAddress();
+        address.setAddress(fromAddress);
+        if (isBlank(fromName)) {
+            return address;
+        }
+        address.setPersonal(fromName, "UTF-8");
+        return address;
+    }
+
+    private static String getEnv(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return isBlank(value) ? defaultValue : value;
+    }
+
+    private static int getIntEnv(String name, int defaultValue) {
+        String value = System.getenv(name);
+        if (isBlank(value)) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

@@ -4,11 +4,19 @@ import org.example.entity.User;
 import org.example.repository.UserRepository;
 import org.example.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -17,6 +25,31 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     PasswordEncoder encoder;
+
+    @Value("${app.upload-dir:uploads}")
+    private String uploadDir;
+
+    private static final Set<String> BLOCKED_FILE_EXTENSIONS = Set.of(
+            ".exe",
+            ".bat",
+            ".cmd",
+            ".sh",
+            ".jar",
+            ".jsp",
+            ".xml");
+    private static final Pattern OBVIOUS_PARENT_TRAVERSAL = Pattern.compile("(^|/)\\.\\./(?!/)");
+    /*
+     * The regex above only catches a parent segment followed by a single slash.
+     * It misses repeated separators such as "..//" before the filesystem resolves
+     * them as normal path separators.
+     *
+     * FIXED CODE:
+     *
+     * private static final Pattern OBVIOUS_PARENT_TRAVERSAL =
+     * Pattern.compile("(^|[\\\\/])\\.\\.(?:[\\\\/]+|$)");
+     *
+     *
+     */
 
     @Override
     public Integer saveUser(User user) {
@@ -36,7 +69,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User findById(Integer id) {
-        return userRepository.findById(String.valueOf(id)).get();
+        return userRepository.findByIdAndIsDeletedFalse(id);
     }
 
     @Override
@@ -59,5 +92,79 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByIdAndIsDeletedFalse(id);
         user.setDeleted(true);
         userRepository.save(user);
+    }
+
+    @Override
+    public User uploadAvatar(Integer id, MultipartFile file, String requestedFilename) throws IOException {
+        User user = userRepository.findByIdAndIsDeletedFalse(id);
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Avatar file is required");
+        }
+
+        Path avatarDir = Paths.get(uploadDir, "avatars").toAbsolutePath().normalize();
+        Files.createDirectories(avatarDir);
+
+        String filename = resolveUploadFilename(file, requestedFilename);
+        if (filename == null || filename.isBlank()) {
+            throw new IllegalArgumentException("Filename is required");
+        }
+
+        rejectRelativeParentPath(filename, "Filename cannot contain ../");
+        if (isBlockedByBlacklist(filename)) {
+            throw new IllegalArgumentException("This file type is not allowed");
+        }
+
+        Path destination = avatarDir.resolve(filename);
+        if (destination.getParent() != null) {
+            Files.createDirectories(destination.getParent());
+        }
+
+        file.transferTo(destination.toFile());
+
+        /*
+         * File upload fix:
+         * Do not trust MultipartFile#getOriginalFilename() for the stored path.
+         * Use a whitelist for image MIME types/extensions, generate a server-side
+         * filename, keep the file inside avatarDir, and reject traversal:
+         *
+         * String contentType = file.getContentType();
+         * if (contentType == null ||
+         * !ALLOWED_IMAGE_TYPES.contains(contentType.toLowerCase(Locale.ROOT))) {
+         * throw new IllegalArgumentException("Only images are allowed");
+         * }
+         *
+         * String extension = getSafeImageExtension(contentType);
+         * String safeFilename = UUID.randomUUID() + extension;
+         * Path destination = avatarDir.resolve(safeFilename).normalize();
+         * if (!destination.startsWith(avatarDir)) {
+         * throw new IllegalArgumentException("Invalid upload path");
+         * }
+         *
+         * file.transferTo(destination.toFile());
+         * user.setAvatarUrl("/uploads/avatars/" + safeFilename);
+         */
+
+        user.setAvatarUrl("/uploads/avatars/" + filename);
+        return userRepository.save(user);
+    }
+
+    private boolean isBlockedByBlacklist(String filename) {
+        return BLOCKED_FILE_EXTENSIONS.stream().anyMatch(filename::endsWith);
+    }
+
+    private String resolveUploadFilename(MultipartFile file, String requestedFilename) {
+        if (requestedFilename != null && !requestedFilename.isBlank()) {
+            return requestedFilename.trim();
+        }
+        return file.getOriginalFilename();
+    }
+
+    private void rejectRelativeParentPath(String value, String message) {
+        if (OBVIOUS_PARENT_TRAVERSAL.matcher(value).find()) {
+            throw new IllegalArgumentException(message);
+        }
     }
 }

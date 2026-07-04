@@ -39,7 +39,6 @@ const BookingDetail = () => {
     try {
       setCancelling(true);
       
-      // Cập nhật transaction với user = null và status = CANCEL
       const cancelData = {
         ...booking,
         user: null,
@@ -95,6 +94,8 @@ const BookingDetail = () => {
         return 'bg-green-100 text-green-800';
       case 'DELAY':
         return 'bg-yellow-100 text-yellow-800';
+      case 'HOLD':
+        return 'bg-purple-100 text-purple-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -110,6 +111,8 @@ const BookingDetail = () => {
         return 'Đã hoàn thành';
       case 'DELAY':
         return 'Bị trễ';
+      case 'HOLD':
+        return 'Đang giữ chỗ';
       default:
         return 'Không xác định';
     }
@@ -233,7 +236,7 @@ const BookingDetail = () => {
             {/* Ticket Information */}
             <div>
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Thông tin vé</h2>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-lg p-4 space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <p className="text-sm text-gray-500">Ghế</p>
@@ -246,6 +249,23 @@ const BookingDetail = () => {
                     <p className="text-xl font-semibold text-[#605DEC]">{formatCurrency(booking.price)} VND</p>
                   </div>
                 </div>
+                {booking.qrCode && (
+                  <div className="border-t border-gray-200 pt-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                      <div className="h-36 w-36 shrink-0 rounded-lg border border-gray-200 bg-white p-2">
+                        <img
+                          src={booking.qrCode}
+                          alt="Mã QR đặt vé"
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Mã QR đặt vé</p>
+                        <p className="font-medium text-gray-900">Mã đặt vé: {booking.id}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -274,4 +294,4 @@ const BookingDetail = () => {
   );
 };
 
-export default BookingDetail; 
+export default BookingDetail;

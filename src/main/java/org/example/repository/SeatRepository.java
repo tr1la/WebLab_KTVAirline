@@ -5,7 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface SeatRepository extends JpaRepository<Seat, String> {
+public interface SeatRepository extends JpaRepository<Seat, Integer> {
     Seat findByIdAndIsDeletedFalse(Integer id);
     Boolean existsByIdAndIsDeletedFalse(Integer id);
     Page<Seat> findByIsDeletedFalse(Pageable pageable);

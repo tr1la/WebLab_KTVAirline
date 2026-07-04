@@ -2,3 +2,7 @@
 /target/classes
 *.class
 /.idea
+.env
+*.pem
+/uploads
+/imports

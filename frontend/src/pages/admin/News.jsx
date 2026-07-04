@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { getNews, createNews, updateNews, deleteNews, getNewsByCategory, getNewsByTitle } from '../../services/api';
 import { toast } from 'react-toastify';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
-const NewsForm = ({ onSubmit, initialData = null }) => {
+const NewsForm = ({ onSubmit, initialData = null, onCancel }) => {
   const [formData, setFormData] = useState({
     title: '',
     author: '',
@@ -26,9 +27,19 @@ const NewsForm = ({ onSubmit, initialData = null }) => {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md">
-      <h3 className="text-xl font-semibold mb-4">
-        {initialData ? 'Chỉnh sửa tin tức' : 'Thêm tin tức mới'}
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold">
+          {initialData ? 'Chỉnh sửa tin tức' : 'Thêm tin tức mới'}
+        </h3>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-gray-400 hover:text-gray-700"
+          title="Đóng"
+        >
+          <FaTimes />
+        </button>
+      </div>
       
       <div className="space-y-4">
         <div>
@@ -240,40 +251,45 @@ const News = () => {
   };
 
   return (
-    <div className="p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Quản lý tin tức</h1>
-          <button
-            onClick={handleAddNew}
-            className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-            disabled={loading}
-          >
-            <FaPlus className="mr-2" />
-            Thêm tin tức
-          </button>
-        </div>
+    <div className="admin-page">
+      <div className="admin-page-container">
+        <AdminPageHeader
+          title="Quản lý tin tức"
+          description="Biên tập tin tức, ưu đãi chuyến bay, địa điểm và nội dung hiển thị cho khách hàng."
+          actions={(
+            <button
+              onClick={handleAddNew}
+              className="flex items-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+              disabled={loading}
+            >
+              <FaPlus className="mr-2" />
+              Thêm tin tức
+            </button>
+          )}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold mb-2 sm:mb-0">Quản lý tin tức</h2>
-                  <button
-                    onClick={() => {
-                      setEditingNews(null);
-                      setShowForm(true);
-                    }}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center"
-                    disabled={loading}
-                  >
-                    <FaPlus className="mr-2" />
-                    Thêm mới
-                  </button>
-                </div>
+        <div className="admin-stack-layout">
+          {showForm && (
+            <div className="admin-stack-block">
+              <NewsForm
+                onSubmit={handleSubmit}
+                initialData={editingNews}
+                onCancel={() => {
+                  setShowForm(false);
+                  setEditingNews(null);
+                }}
+              />
+            </div>
+          )}
 
-                <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="admin-main-column">
+            <div className="admin-panel">
+              <div className="admin-panel-header">
+                <h2 className="text-xl font-bold">Danh sách nội dung</h2>
+                <p className="text-sm text-[#6E7491] mt-1">{news.length} mục đang hiển thị</p>
+              </div>
+              <div className="admin-panel-body">
+                <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Loại tin
@@ -322,7 +338,7 @@ const News = () => {
                   </div>
                 ) : (
                   <>
-                    <div className="overflow-x-auto">
+                    <div className="admin-table-wrap">
                       <table className="min-w-full">
                         <thead>
                           <tr className="bg-gray-50">
@@ -401,12 +417,6 @@ const News = () => {
               </div>
             </div>
           </div>
-
-          {showForm && (
-            <div className="lg:col-span-1">
-              <NewsForm onSubmit={handleSubmit} initialData={editingNews} />
-            </div>
-          )}
         </div>
       </div>
     </div>

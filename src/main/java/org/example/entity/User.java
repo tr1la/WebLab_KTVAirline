@@ -40,9 +40,18 @@ public class User extends BaseObject{
     @Column(name = "ADDRESS")
     private String address;
 
+    @Column(name = "AVATAR_URL")
+    private String avatarUrl;
+
+    @Column(name = "PROFILE_THEME")
+    @Builder.Default
+    private String profileTheme = "light_mode.ftl";
+
     @Column(name = "ROLE", nullable = false)
+    @Builder.Default
     private Role role = Role.USER;
 
     @Column(name = "IS_FORGOTTEN", nullable = false)
+    @Builder.Default
     private boolean isForgotten = false;
 }

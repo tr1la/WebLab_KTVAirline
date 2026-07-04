@@ -4,12 +4,14 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.example.constant.Role;
 import org.example.entity.User;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
-import java.util.Date;
+import java.util.Collections;
 
 @Data
 @NoArgsConstructor
@@ -26,11 +28,14 @@ public class UserDetailsImpl implements UserDetails {
 
     private String username;
 
-    public UserDetailsImpl(Integer id, String email, String password, String username) {
+    private Role role;
+
+    public UserDetailsImpl(Integer id, String email, String password, String username, Role role) {
         this.id = id;
         this.email = email;
         this.password = password;
         this.username = username;
+        this.role = role;
     }
 
     public static UserDetailsImpl build(User user) {
@@ -38,12 +43,14 @@ public class UserDetailsImpl implements UserDetails {
                 user.getId(),
                 user.getEmail(),
                 user.getPassword(),
-                user.getName());
+                user.getName(),
+                user.getRole());
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return null;
+        Role resolvedRole = role == null ? Role.USER : role;
+        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + resolvedRole.name()));
     }
 
     @Override

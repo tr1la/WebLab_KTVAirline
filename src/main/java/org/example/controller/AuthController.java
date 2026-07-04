@@ -37,8 +37,8 @@ public class AuthController {
             User user = userService.findByEmail(loginRequest.getEmail());
             JwtResponse jwtResponse = new JwtResponse(jwtUtils.generateJwtToken(user.getEmail()),
                     user.getId(),
-                    user.getEmail(),
-                    user.getName());
+                    user.getName(),
+                    user.getEmail());
             return ResponseEntity.ok().body(jwtResponse);
         } catch(Exception e){
             return ResponseEntity.badRequest()

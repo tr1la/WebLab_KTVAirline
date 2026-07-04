@@ -6,5 +6,6 @@ public enum TransactionStatusEnum {
     ONGOING,
     DELAY,
     ONTIME,
-    CANCEL
+    CANCEL,
+    HOLD
 }
