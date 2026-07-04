@@ -441,7 +441,7 @@ mà không có normalize + startsWith(baseDir), đánh dấu arbitrary file writ
 - [x] Kiểm tra file type policy: blacklist thay vì whitelist.
 - [x] Kiểm tra public serving: `/uploads/**` permitAll.
 - [x] Kiểm tra stored output: `user.avatarUrl`.
-- [ ] Đối chiếu comment fix code ngay dưới sink.
+- [x] Đối chiếu comment fix code ngay dưới sink.
 
 ---
 

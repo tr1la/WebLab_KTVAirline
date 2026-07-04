@@ -5,5 +5,7 @@
   "table-editor-obsidian",
   "obsidian-outliner",
   "obsidian-git",
-  "editing-toolbar"
+  "editing-toolbar",
+  "image-converter",
+  "obsidian-paste-image-rename"
 ]
