@@ -31,6 +31,9 @@ public class WebSecurityConfig {
     @Autowired
     private AuthEntryPointJwt unauthorizedHandler;
 
+    @Autowired
+    private UploadOwnerAuthorizationManager uploadOwnerAuthorizationManager;
+
     @Bean
     public AuthTokenFilter authenticationJwtTokenFilter() {
         return new AuthTokenFilter();
@@ -81,7 +84,7 @@ public class WebSecurityConfig {
             .authorizeHttpRequests(auth ->
                 auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     .requestMatchers("/v3/**", "/swagger-ui/**", "/swagger-ui", "/swagger-ui.html").permitAll()
-                    .requestMatchers("/uploads/**").hasAnyRole("USER", "ADMIN")
+                    .requestMatchers("/uploads/**").access(uploadOwnerAuthorizationManager)
                     .requestMatchers(HttpMethod.GET, "/api/v1/profile/basic-info").hasAnyRole("USER", "ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/signup", "/api/v1/auth/forgetP").permitAll()
                     .requestMatchers(HttpMethod.GET,

@@ -37,6 +37,7 @@
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/controller/SeatController.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/entity/User.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/entity/Seat.java
+/Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/security/UploadOwnerAuthorizationManager.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/payload/NewsRequest.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/controller/PromotionController.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/constant/Category.java

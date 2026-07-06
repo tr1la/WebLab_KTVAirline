@@ -77,6 +77,7 @@ org/example/util/DynamicUIBuilder.class
 org/example/payload/ChangePasswordRequest.class
 org/example/controller/TransactionController.class
 org/example/serviceImpl/PlaneServiceImpl.class
+org/example/security/UploadOwnerAuthorizationManager.class
 org/example/security/AuthTokenFilter.class
 org/example/constant/Role.class
 org/example/service/PlaneService.class

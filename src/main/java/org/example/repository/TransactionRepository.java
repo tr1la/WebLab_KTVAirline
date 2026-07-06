@@ -25,6 +25,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Intege
 
     public Transaction findByIdAndIsDeletedFalse(Integer id);
 
+    public boolean existsByUserIdAndQrCodeAndIsDeletedFalse(Integer userId, String qrCode);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Transaction t where t.id = :id and t.isDeleted = false")
     public Transaction findByIdAndIsDeletedFalseForUpdate(@Param("id") Integer id);

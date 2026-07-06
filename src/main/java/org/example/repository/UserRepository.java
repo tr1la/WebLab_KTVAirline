@@ -11,4 +11,5 @@ public interface UserRepository extends JpaRepository<User, Integer> {
     Page<User> findByIsDeletedFalse(Pageable pageable);
     Boolean existsByIdAndIsDeletedFalse(Integer id);
     User findByIdAndIsDeletedFalse(Integer id);
+    Boolean existsByIdAndAvatarUrlAndIsDeletedFalse(Integer id, String avatarUrl);
 }

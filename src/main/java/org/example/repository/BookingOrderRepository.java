@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 
 public interface BookingOrderRepository extends JpaRepository<BookingOrder, Integer> {
     public BookingOrder findByIdAndIsDeletedFalse(Integer id);
+    public boolean existsByUserIdAndQrCodeAndIsDeletedFalse(Integer userId, String qrCode);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
