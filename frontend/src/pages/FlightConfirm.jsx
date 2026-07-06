@@ -6,6 +6,7 @@ import { formatCurrency } from "../utils/format";
 import { FaPlane, FaUser, FaEnvelope, FaPhone, FaCalendar, FaVenusMars, FaMapMarkerAlt, FaTicketAlt, FaCheckCircle, FaTimesCircle, FaHourglassHalf } from "react-icons/fa";
 import { applyBookingPromotion, confirmBooking, getPromotionsByActive, holdBooking, saveBookingDraft } from "../services/api";
 import { toast } from "react-toastify";
+import useProtectedUploadUrl from "../hooks/useProtectedUploadUrl";
 
 const normalizeValue = (value) => {
   return String(value || "")
@@ -139,6 +140,7 @@ const FlightConfirm = () => {
   const [holdError, setHoldError] = useState("");
   const [isHoldingSeats, setIsHoldingSeats] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const protectedBookingQrCode = useProtectedUploadUrl(bookingQuote?.qrCode || "");
 
   const refreshSeatHold = async (booking, code = "") => {
     if (!booking) {
@@ -559,12 +561,12 @@ const FlightConfirm = () => {
                   </div>
                 </div>
 
-                {bookingQrCode && (
+                {bookingQrCode && protectedBookingQrCode && (
                   <div className="border-t border-gray-200 pt-5">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                       <div className="w-36 h-36 rounded-lg border border-gray-200 bg-white p-2 flex items-center justify-center shrink-0">
                         <img
-                          src={bookingQrCode}
+                          src={protectedBookingQrCode}
                           alt="Mã QR đặt vé"
                           className="w-full h-full object-contain"
                         />

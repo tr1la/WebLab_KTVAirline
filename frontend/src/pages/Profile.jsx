@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserByEmail, updateUser, changePassword, uploadUserAvatar, getProfileBasicInfoHtml } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import useProtectedUploadUrl from '../hooks/useProtectedUploadUrl';
 
 const ProfileSection = ({ title, children }) => (
   <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -339,7 +340,8 @@ const Profile = () => {
     }
   };
 
-  const avatarSrc = formData.avatarUrl || user?.avatarUrl || '';
+  const rawAvatarSrc = formData.avatarUrl || user?.avatarUrl || '';
+  const avatarSrc = useProtectedUploadUrl(rawAvatarSrc);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

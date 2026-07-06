@@ -6,6 +6,30 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
+const getApiOrigin = () => {
+  if (!/^https?:\/\//i.test(API_URL)) {
+    return '';
+  }
+
+  try {
+    return new URL(API_URL).origin;
+  } catch {
+    return '';
+  }
+};
+
+const resolveUploadUrl = (url) => {
+  if (!url) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(url) || url.startsWith('blob:') || url.startsWith('data:')) {
+    return url;
+  }
+
+  const normalizedPath = url.startsWith('/') ? url : `/${url}`;
+  return `${getApiOrigin()}${normalizedPath}`;
+};
+
 // Add a request interceptor to add the auth token to requests
 api.interceptors.request.use(
   (config) => {
@@ -53,6 +77,13 @@ export const uploadUserAvatar = (userId, file) => {
   formData.append('file', file);
 
   return api.post(`/user/${userId}/avatar`, formData);
+};
+export const getProtectedUpload = (url) => {
+  const token = localStorage.getItem('token');
+  return axios.get(resolveUploadUrl(url), {
+    responseType: 'blob',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
 };
 
 // News APIs

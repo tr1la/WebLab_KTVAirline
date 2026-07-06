@@ -7,5 +7,7 @@
   "obsidian-git",
   "editing-toolbar",
   "image-converter",
-  "obsidian-paste-image-rename"
+  "obsidian-paste-image-rename",
+  "url-into-selection",
+  "obsidian-excalidraw-plugin"
 ]

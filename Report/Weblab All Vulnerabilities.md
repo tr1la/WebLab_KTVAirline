@@ -1,63 +1,75 @@
 # FileUpload Vulnerability Flow
 ---
 
-## 1. Phạm vi rà soát
+## 1. Kết luận nhanh cho FileUpload
 
-| Hạng mục                                     | Trạng thái          | Điểm đánh dấu đã đọc                                                                                                          |
-| -------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| FileUpload: blacklist bypass, path traversal | Đã rà soát chi tiết | `UserController.uploadAvatar`, `UserServiceImpl.uploadAvatar`, `WebConfig`, `/uploads/**`                                     |
-| XXE / XMLDecoder                             | Đã rà soát          | `PromotionController.importPromotionXml`, `PromotionServiceImpl.queuePromotionXml`, `PromotionServiceImpl.importPromotionXml` |
-| SQLi error/boolean                           | Đã rà soát          | `FlightSearchRepositoryImpl.appendKeywordSearch`, `TransactionSearchRepositoryImpl.appendFlightNameSearch`                    |
-| JWT header `jwk` / `kid` injection           | Đã rà soát          | `JwtUtils.resolveVerificationKey`, `JwtUtils.resolveKeyFromKidCommand`                                                        |
-| JWT algorithm confusion                      | Đã rà soát          | `JwtUtils.init`, `JwtUtils.resolveVerificationKey`, `JwtUtilsTest.acceptsHs256TokenSignedWithPublicKeyPemAsHmacSecret`        |
-| Command Injection blind                      | Đã rà soát          | `QRCodeHelper.renderQrCode`, `Runtime.getRuntime().exec("/bin/sh", "-c", command)`                                            |
-| SSTI object-chain + dev-supplied template    | Đã rà soát          | `ProfileViewController`, `FreeMarkerSandboxConfig`, `CustomThemeLoader`, `ProfileTheme`, `light_mode.ftl`                     |
-| LFI log poisoning                            | Đã rà soát          | `application.properties` access log config, `CustomThemeLoader.loadFilesystemTheme`, `renderTemplateSource`                   |
-| Insecure Deserialize                         | Đã rà soát          | `BookingController.importDraft`, `BookingServiceImpl.importDraft`, `ObjectInputStream.readObject`                             |
-| Race Condition: limit overrun                | Đã rà soát          | `BookingServiceImpl.applyPromotion`, `BookingOrderRepository.applyPromotionDiscount`, `BookingOrder.appliedPromotionCodes`    |
-
----
-
-## 2. Kết luận nhanh cho FileUpload
-
-| Thuộc tính | Giá trị |
-| --- | --- |
-| Entry point | `POST /api/v1/user/{id}/avatar` |
-| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN`, và user chỉ upload cho chính mình nếu không phải admin |
-| Source chính | `MultipartFile file`, optional multipart field `filename`, `MultipartFile#getOriginalFilename()` |
-| Sink chính | `file.transferTo(destination.toFile())` |
-| Stored path | `uploads/avatars/<filename>` |
-| Public exposure | `/uploads/**` được permit và map thẳng tới `app.upload-dir` |
-| Lỗi blacklist | Chỉ chặn đuôi file bằng `filename.endsWith(...)`, case-sensitive, không whitelist MIME/extension ảnh |
+| Thuộc tính         | Giá trị                                                                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Entry point        | `POST /api/v1/user/{id}/avatar`                                                                                                        |
+| Quyền truy cập     | `ROLE_USER` hoặc `ROLE_ADMIN`, và user chỉ upload cho chính mình nếu không phải admin                                                  |
+| Source chính       | `MultipartFile file`, optional multipart field `filename`, `MultipartFile#getOriginalFilename()`                                       |
+| Sink chính         | `file.transferTo(destination.toFile())`                                                                                                |
+| Stored path        | `uploads/avatars/<filename>`                                                                                                           |
+| Public exposure    | `/uploads/**` được permit và map thẳng tới `app.upload-dir`                                                                            |
+| Lỗi blacklist      | Chỉ chặn đuôi file bằng `filename.endsWith(...)`, case-sensitive, không whitelist MIME/extension ảnh                                   |
 | Lỗi path traversal | Dùng regex yếu để chặn `../`, sau đó `avatarDir.resolve(filename)` mà không `normalize()` + `startsWith(avatarDir)` trước khi ghi file |
-| Fix comment hiện có | `UserServiceImpl.java` dòng 127-148 |
 
-> **Nhận định:** đây là vulnerable flow hoàn chỉnh: attacker điều khiển filename/file content, backend dùng filename đó để build path ghi file, blacklist không đủ mạnh, traversal filter có bypass, file được ghi vào thư mục public hoặc thoát khỏi `avatars`.
+> **Nhận định:** đây là vulnerable flow hoàn chỉnh: attacker điều khiển filename/file content, backend dùng filename đó để build path ghi file, blacklist không đủ mạnh, traversal filter có bypass, file được ghi vào thư mục public hoặc thoát khỏi `/avatars`.
 
 ---
 
-## 3. Sơ đồ dữ liệu tổng quát
+## 2. Sơ đồ dữ liệu tổng quát
 
-```text
-Browser Profile.jsx
-  -> uploadUserAvatar(user.id, file)
-  -> POST /api/v1/user/{id}/avatar multipart/form-data
-  -> UserController.uploadAvatar(...)
-  -> UserServiceImpl.uploadAvatar(id, file, filename)
-  -> filename = requested filename OR file.getOriginalFilename()
-  -> rejectRelativeParentPath(filename)        [weak traversal filter]
-  -> isBlockedByBlacklist(filename)            [blacklist bypass]
-  -> destination = avatarDir.resolve(filename) [path controlled by filename]
-  -> file.transferTo(destination.toFile())     [file write sink]
-  -> user.avatarUrl = "/uploads/avatars/" + filename
-  -> /uploads/** static handler serves app.upload-dir
+```mermaid
+graph TD
+    subgraph Frontend
+        A["Browser: Profile.jsx"]
+    end
+
+    subgraph API Layer
+        B("POST /api/v1/user/{id}/avatar")
+        C["UserController.uploadAvatar"]
+    end
+
+    subgraph Service Layer
+        D["UserServiceImpl.uploadAvatar"]
+        E{"filename = requested <br> OR file.getOriginalFilename"}
+        F["rejectRelativeParentPath"]
+        G["isBlockedByBlacklist"]
+    end
+
+    subgraph File System & Sink
+        H["destination = avatarDir.resolve"]
+        I(("file.transferTo"))
+        J["user.setAvatarUrl"]
+        K["Static Handler: /uploads/**"]
+    end
+
+    %% Luồng dữ liệu và Ghi chú Lỗ hổng
+    A -->|uploadUserAvatar| B
+    B -->|multipart/form-data| C
+    C --> D
+    D --> E
+    E --> F
+    F -->|Weak traversal filter| G
+    G -->|Blacklist bypass| H
+    H -->|Path controlled by filename| I
+    I -->|FILE WRITE SINK| J
+    J -->|/uploads/avatars/ + filename| K
+
+    %% Đổ màu (Styling) để highlight lỗ hổng cho Report
+    classDef vuln fill:#4a1515,stroke:#ff5555,stroke-width:2px,color:#fff;
+    classDef sink fill:#5c1a1a,stroke:#ff0000,stroke-width:3px,color:#fff;
+    
+    class F,G vuln;
+    class I sink;
 ```
 
 ---
 
-## 4. Hướng 1 - Truy vết từ sink đến source
+## 3. Hướng 1 - Truy vết từ sink đến source
 
-### 4.1. Bắt đầu từ sink ghi file
+### 3.1. Bắt đầu từ sink ghi file
 
 **File:** `src/main/java/org/example/serviceImpl/UserServiceImpl.java`
 
@@ -81,17 +93,17 @@ file.transferTo(destination.toFile());                // [SINK]
 user.setAvatarUrl("/uploads/avatars/" + filename);    // [STORED OUTPUT]
 ```
 
-| Dòng phân tích                | Ý nghĩa                                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| `avatarDir`                   | Base directory hợp lệ được normalize: `uploads/avatars` hoặc `/app/uploads/avatars` trong Docker |
-| `filename`                    | Không phải server-generated; đến từ request hoặc `OriginalFilename`                              |
-| `rejectRelativeParentPath`    | Có kiểm tra traversal nhưng regex yếu                                                            |
-| `isBlockedByBlacklist`        | Chỉ blacklist một số đuôi nguy hiểm, không whitelist ảnh                                         |
-| `avatarDir.resolve(filename)` | Nếu `filename` chứa traversal/absolute path, path đích bị attacker ảnh hưởng                     |
-| `transferTo(...)`             | Sink ghi file thật lên filesystem                                                                |
-| `setAvatarUrl(...)`           | Lưu URL dựa trên filename không chuẩn hóa                                                        |
+| Dòng phân tích                | Ý nghĩa                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `avatarDir`                   | Base directory hợp lệ được normalize: `uploads/avatars` hoặc `/app/uploads/avatars` trong Docker                   |
+| `filename`                    | Không phải server-generated; đến từ request hoặc `OriginalFilename`                                                |
+| `rejectRelativeParentPath`    | Có kiểm tra traversal nhưng regex yếu (`Pattern.compile("(^\|/)\\.\\./(?!/)")`)                                    |
+| `isBlockedByBlacklist`        | Chỉ blacklist một số đuôi nguy hiểm, không whitelist ảnh (`".exe", ".bat", ".cmd", ".sh", ".jar", ".jsp", ".xml"`) |
+| `avatarDir.resolve(filename)` | Nếu `filename` chứa traversal/absolute path, path đích bị attacker ảnh hưởng                                       |
+| `transferTo(...)`             | Sink ghi file thật lên filesystem                                                                                  |
+| `setAvatarUrl(...)`           | Lưu URL dựa trên filename không chuẩn hóa                                                                          |
 
-### 4.2. Kiểm tra path construction
+### 3.2. Kiểm tra path construction
 
 ```java
 Path destination = avatarDir.resolve(filename);
@@ -119,7 +131,7 @@ file.transferTo(destination.toFile());
 user.setAvatarUrl("/uploads/avatars/" + safeFilename);
 ```
 
-### 4.3. Truy ngược validation blacklist
+### 3.3. Truy ngược validation blacklist
 
 ```java
 private static final Set<String> BLOCKED_FILE_EXTENSIONS = Set.of(
@@ -136,15 +148,15 @@ private boolean isBlockedByBlacklist(String filename) {
 }
 ```
 
-| Vấn đề | Vì sao nguy hiểm |
-| --- | --- |
-| Blacklist thay vì whitelist | File không nằm trong danh sách chặn vẫn được ghi, ví dụ `.html`, `.svg`, `.php`, `.phtml`, hoặc định dạng polyglot |
-| `endsWith` case-sensitive | `.JSP`, `.Xml`, `.Sh` không khớp blacklist hiện tại |
-| Không kiểm tra MIME thật | `file.getContentType()` không được dùng; magic bytes cũng không được kiểm tra |
-| Không tách extension cuối an toàn | Tên kiểu nhiều đuôi có thể qua được chính sách nếu đuôi cuối không bị blacklist |
-| Không đổi tên file | Attacker giữ nguyên tên file và cấu trúc path |
+| Vấn đề                            | Vì sao nguy hiểm                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Blacklist thay vì whitelist       | File không nằm trong danh sách chặn vẫn được ghi, ví dụ `.html`, `.svg`, `.php`, `.phtml`, hoặc định dạng polyglot |
+| `endsWith` case-sensitive         | `.JSP`, `.Xml`, `.Sh` không khớp blacklist hiện tại                                                                |
+| Không kiểm tra MIME thật          | `file.getContentType()` không được dùng; magic bytes cũng không được kiểm tra                                      |
+| Không tách extension cuối an toàn | Tên kiểu nhiều đuôi có thể bypass filter nếu đuôi cuối không bị blacklist                                          |
+| Không đổi tên file                | Attacker giữ nguyên tên file và cấu trúc path                                                                      |
 
-### 4.4. Truy ngược validation path traversal
+### 3.4. Truy ngược validation path traversal
 
 ```java
 private static final Pattern OBVIOUS_PARENT_TRAVERSAL =
@@ -157,12 +169,12 @@ private void rejectRelativeParentPath(String value, String message) {
 }
 ```
 
-| Dấu hiệu | Kết luận |
-| --- | --- |
-| Regex chỉ nhìn dấu `/` | Không xử lý separator khác trong một số môi trường |
+| Dấu hiệu                     | Kết luận                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| Regex chỉ nhìn dấu `/`       | Không xử lý separator khác trong một số môi trường                    |
 | Pattern có `(?!/)` sau `../` | Chặn `../file`, nhưng có thể bỏ sót dạng separator lặp như `..//file` |
-| Không normalize sau filter | Filesystem vẫn có thể resolve parent segment khi ghi |
-| Không so sánh với root thật | Không có invariant `finalPath.startsWith(avatarDir)` |
+| Không normalize sau filter   | Filesystem vẫn có thể resolve parent segment khi ghi                  |
+| Không so sánh với root thật  | Không có invariant `finalPath.startsWith(avatarDir)`                  |
 
 Comment fix hiện có trong code đã nêu đúng hướng:
 
@@ -191,10 +203,10 @@ private String resolveUploadFilename(MultipartFile file, String requestedFilenam
 }
 ```
 
-| Source | Điều khiển bởi ai | Ghi chú |
-| --- | --- | --- |
-| `requestedFilename` | Client gửi multipart field `filename` | UI hiện tại không gửi, nhưng API backend vẫn nhận |
-| `file.getOriginalFilename()` | Client multipart upload | Không đáng tin; có thể chứa tên lạ/path tùy client |
+| Source                       | Điều khiển bởi ai                     | Ghi chú                                            |
+| ---------------------------- | ------------------------------------- | -------------------------------------------------- |
+| `requestedFilename`          | Client gửi multipart field `filename` | UI hiện tại không gửi, nhưng API backend vẫn nhận  |
+| `file.getOriginalFilename()` | Client multipart upload               | Không đáng tin; có thể chứa tên lạ/path tùy client |
 
 ### 4.6. Truy ngược controller endpoint
 

@@ -6,6 +6,7 @@ import { FaPlane, FaUser, FaEnvelope, FaPhone, FaCalendar, FaVenusMars, FaMapMar
 import { getTransactionById, updateTransaction } from '../services/api';
 import { toast } from 'react-toastify';
 import { formatCurrency } from '../utils/format';
+import useProtectedUploadUrl from '../hooks/useProtectedUploadUrl';
 
 const BookingDetail = () => {
   const { id } = useParams();
@@ -30,6 +31,8 @@ const BookingDetail = () => {
 
     fetchBookingDetail();
   }, [id, navigate]);
+
+  const protectedQrCode = useProtectedUploadUrl(booking?.qrCode || '');
 
   const handleCancelBooking = async () => {
     if (!window.confirm('Bạn có chắc chắn muốn hủy vé này?')) {
@@ -249,12 +252,12 @@ const BookingDetail = () => {
                     <p className="text-xl font-semibold text-[#605DEC]">{formatCurrency(booking.price)} VND</p>
                   </div>
                 </div>
-                {booking.qrCode && (
+                {booking.qrCode && protectedQrCode && (
                   <div className="border-t border-gray-200 pt-5">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                       <div className="h-36 w-36 shrink-0 rounded-lg border border-gray-200 bg-white p-2">
                         <img
-                          src={booking.qrCode}
+                          src={protectedQrCode}
                           alt="Mã QR đặt vé"
                           className="h-full w-full object-contain"
                         />

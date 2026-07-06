@@ -84,13 +84,11 @@
               "title": "Navigator"
             }
           }
-        ],
-        "currentTab": 3
+        ]
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "e864ebcf523e551f",
@@ -202,8 +200,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -215,12 +212,15 @@
       "command-palette:Open command palette": false,
       "bases:Create new base": false,
       "table-editor-obsidian:Advanced Tables Toolbar": false,
-      "obsidian-git:Open Git source control": false
+      "obsidian-git:Open Git source control": false,
+      "obsidian-excalidraw-plugin:New drawing": false
     }
   },
   "active": "3f61151050ddd7b7",
   "lastOpenFiles": [
-    "Tags",
-    "Weblab All Vulnerabilities.md"
+    "Weblab All Vulnerabilities.md",
+    "Excalidraw/Drawing 2026-07-06 09.21.26.excalidraw.md",
+    "Excalidraw",
+    "Tags"
   ]
 }

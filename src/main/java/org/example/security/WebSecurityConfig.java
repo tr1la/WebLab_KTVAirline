@@ -80,7 +80,8 @@ public class WebSecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth ->
                 auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                    .requestMatchers("/v3/**", "/swagger-ui/**", "/swagger-ui", "/swagger-ui.html", "/uploads/**").permitAll()
+                    .requestMatchers("/v3/**", "/swagger-ui/**", "/swagger-ui", "/swagger-ui.html").permitAll()
+                    .requestMatchers("/uploads/**").hasAnyRole("USER", "ADMIN")
                     .requestMatchers(HttpMethod.GET, "/api/v1/profile/basic-info").hasAnyRole("USER", "ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/signup", "/api/v1/auth/forgetP").permitAll()
                     .requestMatchers(HttpMethod.GET,
