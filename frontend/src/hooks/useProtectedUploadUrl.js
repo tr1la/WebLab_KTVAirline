@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getProtectedUpload } from '../services/api';
 
-const isProtectedUploadUrl = (url) => {
+export const isProtectedUploadUrl = (url) => {
   if (!url || url.startsWith('blob:') || url.startsWith('data:')) {
     return false;
   }

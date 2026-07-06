@@ -10,11 +10,11 @@
 | Source chính       | `MultipartFile file`, optional multipart field `filename`, `MultipartFile#getOriginalFilename()`                                       |
 | Sink chính         | `file.transferTo(destination.toFile())`                                                                                                |
 | Stored path        | `uploads/avatars/<filename>`                                                                                                           |
-| Public exposure    | `/uploads/**` được permit và map thẳng tới `app.upload-dir`                                                                            |
+| Authenticated exposure | `/uploads/**` map thẳng tới `app.upload-dir`, anonymous bị chặn nhưng user/admin có JWT vẫn fetch được static file theo URL        |
 | Lỗi blacklist      | Chỉ chặn đuôi file bằng `filename.endsWith(...)`, case-sensitive, không whitelist MIME/extension ảnh                                   |
 | Lỗi path traversal | Dùng regex yếu để chặn `../`, sau đó `avatarDir.resolve(filename)` mà không `normalize()` + `startsWith(avatarDir)` trước khi ghi file |
 
-> **Nhận định:** đây là vulnerable flow hoàn chỉnh: attacker điều khiển filename/file content, backend dùng filename đó để build path ghi file, blacklist không đủ mạnh, traversal filter có bypass, file được ghi vào thư mục public hoặc thoát khỏi `/avatars`.
+> **Nhận định:** đây là vulnerable flow hoàn chỉnh: attacker điều khiển filename/file content, backend dùng filename đó để build path ghi file, blacklist không đủ mạnh, traversal filter có bypass, file được ghi vào upload root có route tĩnh được bảo vệ bằng JWT hoặc thoát khỏi `/avatars`.
 
 ---
 
@@ -42,7 +42,7 @@ graph TD
         H["destination = avatarDir.resolve"]
         I(("file.transferTo"))
         J["user.setAvatarUrl"]
-        K["Static Handler: /uploads/**"]
+        K["Protected Static Handler: /uploads/**"]
     end
 
     %% Luồng dữ liệu và Ghi chú Lỗ hổng
@@ -68,6 +68,27 @@ graph TD
 ---
 
 ## 3. Hướng 1 - Truy vết từ sink đến source
+
+### 3.0. Fuzz dangerous function để tìm sink candidate
+
+Trước khi lần ngược về input, hướng sink -> source bắt đầu bằng bước fuzz/tìm kiếm các dangerous function. Mục tiêu là không đoán endpoint trước, mà quét các API có khả năng tạo tác động nguy hiểm rồi mới chọn sink thật để truy dataflow.
+
+| Nhóm dangerous function | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
+| --- | --- | --- | --- |
+| File write từ upload | `transferTo`, `Files.write`, `Files.copy`, `Files.move` | `file.transferTo(destination.toFile())` trong `UserServiceImpl.uploadAvatar` | Sink chính của FileUpload |
+| Path construction | `Path.resolve`, `Paths.get`, `new File` | `avatarDir.resolve(filename)` | Path phụ thuộc filename |
+| Static exposure | `addResourceHandler`, `requestMatchers("/uploads/**")` | `WebConfig.addResourceHandlers`, `WebSecurityConfig` | File dưới upload root có HTTP route được bảo vệ bằng JWT |
+| Filename source helper | `getOriginalFilename`, `@RequestParam("filename")` | `resolveUploadFilename(...)`, `UserController.uploadAvatar(...)` | Tìm được input điều khiển path |
+
+Trình tự phân tích sink -> source trong report này:
+
+1. Fuzz dangerous function để lấy danh sách sink candidate.
+2. Chọn sink có tác động thật: `transferTo(...)`.
+3. Lần ngược biến path: `destination` <- `avatarDir.resolve(filename)`.
+4. Lần ngược sanitizer: `rejectRelativeParentPath(...)`, `isBlockedByBlacklist(...)`.
+5. Lần ngược source: `requestedFilename` hoặc `file.getOriginalFilename()`.
+6. Xác nhận entry point: `POST /api/v1/user/{id}/avatar`.
+7. Xác nhận exposure sau ghi: `/uploads/**` cần JWT nhưng không có owner-check ở resource-handler layer.
 
 ### 3.1. Bắt đầu từ sink ghi file
 
@@ -192,7 +213,7 @@ if (!destination.startsWith(avatarDir)) {
 }
 ```
 
-### 4.5. Truy ngược source filename
+### 3.5. Truy ngược source filename
 
 ```java
 private String resolveUploadFilename(MultipartFile file, String requestedFilename) {
@@ -208,7 +229,7 @@ private String resolveUploadFilename(MultipartFile file, String requestedFilenam
 | `requestedFilename`          | Client gửi multipart field `filename` | UI hiện tại không gửi, nhưng API backend vẫn nhận  |
 | `file.getOriginalFilename()` | Client multipart upload               | Không đáng tin; có thể chứa tên lạ/path tùy client |
 
-### 4.6. Truy ngược controller endpoint
+### 3.6. Truy ngược controller endpoint
 
 **File:** `src/main/java/org/example/controller/UserController.java`
 
@@ -235,7 +256,7 @@ public ResponseEntity<?> uploadAvatar(@PathVariable Integer id,
 | `canAccessUser(authentication, id)` | Giới hạn user upload avatar của chính mình hoặc admin |
 | `userService.uploadAvatar(...)` | Data đi vào service sink không qua normalize/allowlist ở controller |
 
-### 4.7. Truy ngược public exposure
+### 3.7. Truy ngược authenticated exposure
 
 **File:** `src/main/java/org/example/config/WebConfig.java`
 
@@ -248,20 +269,35 @@ registry.addResourceHandler("/uploads/**")
 **File:** `src/main/java/org/example/security/WebSecurityConfig.java`
 
 ```java
-.requestMatchers(
-    "/v3/**",
-    "/swagger-ui/**",
-    "/swagger-ui",
-    "/swagger-ui.html",
-    "/uploads/**"
-).permitAll()
+.requestMatchers("/v3/**", "/swagger-ui/**", "/swagger-ui", "/swagger-ui.html").permitAll()
+.requestMatchers("/uploads/**").hasAnyRole("USER", "ADMIN")
 ```
 
-| Ý nghĩa                                | Tác động                                             |
-| -------------------------------------- | ---------------------------------------------------- |
-| `/uploads/**` map tới `app.upload-dir` | File ghi dưới upload root có thể được truy cập HTTP  |
-| `/uploads/**` được `permitAll()`       | Không cần JWT để xem file đã upload                  |
-| `avatarUrl` lưu URL public             | User profile dùng lại đường dẫn này để render avatar |
+**File:** `frontend/src/services/api.js`
+
+```js
+export const getProtectedUpload = (url) => {
+  const token = localStorage.getItem('token');
+  return axios.get(resolveUploadUrl(url), {
+    responseType: 'blob',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+};
+```
+
+**File:** `frontend/src/hooks/useProtectedUploadUrl.js`
+
+```js
+return url.startsWith('/uploads/') || url.includes('/uploads/');
+```
+
+| Ý nghĩa                                | Tác động |
+| -------------------------------------- | -------- |
+| `/uploads/**` map tới `app.upload-dir` | File ghi dưới upload root vẫn có HTTP route tĩnh |
+| `/uploads/**` yêu cầu `hasAnyRole("USER", "ADMIN")` | Anonymous không xem được file upload nữa |
+| Không có owner-check ở static resource handler | User đã đăng nhập có thể request file nếu biết URL |
+| Frontend dùng `getProtectedUpload(...)` | Avatar/QR dưới `/uploads/**` được fetch bằng JWT rồi render qua blob URL |
+| `avatarUrl` lưu relative URL | DB vẫn lưu đường dẫn dựa trên filename không chuẩn hóa |
 
 ---
 
@@ -389,7 +425,7 @@ Từ góc nhìn source-to-sink, đây là điểm xác nhận lỗ hổng:
 - Sink `transferTo` nhận `destination` bị ảnh hưởng bởi source.
 - Không có sanitizer mạnh nằm giữa source và sink.
 
-### 5.8. Output được lưu và public hóa
+### 5.8. Output được lưu và serve qua protected upload route
 
 ```java
 user.setAvatarUrl("/uploads/avatars/" + filename);
@@ -400,7 +436,7 @@ Sau ghi file:
 
 - DB lưu `avatarUrl`.
 - Profile render avatar bằng URL đó.
-- Static route `/uploads/**` cho phép truy cập public nếu file nằm dưới `app.upload-dir`.
+- Static route `/uploads/**` hiện yêu cầu JWT; file nằm dưới `app.upload-dir` không còn public anonymous nhưng vẫn được serve theo URL cho user/admin đã đăng nhập.
 
 ---
 
@@ -451,7 +487,7 @@ mà không có normalize + startsWith(baseDir), đánh dấu arbitrary file writ
 - [x] Kiểm tra path building: `avatarDir.resolve(filename)`.
 - [x] Kiểm tra sanitizer: regex yếu, không normalize boundary.
 - [x] Kiểm tra file type policy: blacklist thay vì whitelist.
-- [x] Kiểm tra public serving: `/uploads/**` permitAll.
+- [x] Kiểm tra authenticated serving: `/uploads/**` yêu cầu `hasAnyRole("USER", "ADMIN")`, không còn `permitAll` nhưng vẫn là static file route.
 - [x] Kiểm tra stored output: `user.avatarUrl`.
 - [x] Đối chiếu comment fix code ngay dưới sink.
 
@@ -498,13 +534,15 @@ Checklist fix tối thiểu:
 | File | Dòng | Vai trò |
 | --- | ---: | --- |
 | `frontend/src/pages/Profile.jsx` | 230-263 | UI source: chọn file và gọi upload |
-| `frontend/src/services/api.js` | 51-56 | API source: tạo multipart form |
+| `frontend/src/services/api.js` | 75-87 | API source: tạo multipart form và fetch protected upload bằng blob + Authorization |
+| `frontend/src/hooks/useProtectedUploadUrl.js` | 4-53 | Nhận diện `/uploads/**` và chuyển protected file thành blob URL cho UI |
+| `frontend/src/hooks/useProtectedUploadHtml.js` | 5-51 | Thay `img[src]` trỏ `/uploads/**` trong HTML SSR bằng blob URL có Authorization |
 | `src/main/java/org/example/controller/UserController.java` | 142-158 | Backend source: bind multipart `file` và optional `filename` |
 | `src/main/java/org/example/serviceImpl/UserServiceImpl.java` | 32-40 | Blacklist extension + regex traversal yếu |
 | `src/main/java/org/example/serviceImpl/UserServiceImpl.java` | 98-151 | Core vulnerable upload flow |
 | `src/main/java/org/example/serviceImpl/UserServiceImpl.java` | 154-168 | Helper blacklist/source filename/traversal filter |
 | `src/main/java/org/example/config/WebConfig.java` | 31-35 | Static handler `/uploads/**` |
-| `src/main/java/org/example/security/WebSecurityConfig.java` | 81-96 | Security permit upload read + require auth for avatar upload |
+| `src/main/java/org/example/security/WebSecurityConfig.java` | 81-96 | `/uploads/**` yêu cầu user/admin, avatar upload cũng yêu cầu user/admin |
 | `src/main/resources/application.properties` | 17, 27-28 | Upload dir + multipart max size |
 | `docker-compose.yml` | 39, 52 | Docker upload dir `/app/uploads` mounted to `./uploads` |
 
@@ -519,7 +557,7 @@ FileUpload flow này không chỉ là "cho upload file sai đuôi". Điểm nguy
 3. traversal filter yếu;
 4. `Path.resolve(filename)` không kiểm tra boundary;
 5. `transferTo` ghi file thật;
-6. `/uploads/**` public.
+6. `/uploads/**` được serve qua static route cho user/admin đã đăng nhập, không có owner-check theo từng file.
 
 Vì vậy khi trình bày trong báo cáo whitebox, nên đánh dấu sink tại `transferTo(...)`, source tại `@RequestParam filename` / `getOriginalFilename()`, và invariant bị thiếu là:
 

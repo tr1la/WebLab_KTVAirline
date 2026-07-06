@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserByEmail, updateUser, changePassword, uploadUserAvatar, getProfileBasicInfoHtml } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import useProtectedUploadHtml from '../hooks/useProtectedUploadHtml';
 import useProtectedUploadUrl from '../hooks/useProtectedUploadUrl';
 
 const ProfileSection = ({ title, children }) => (
@@ -342,6 +343,7 @@ const Profile = () => {
 
   const rawAvatarSrc = formData.avatarUrl || user?.avatarUrl || '';
   const avatarSrc = useProtectedUploadUrl(rawAvatarSrc);
+  const protectedBasicInfoHtml = useProtectedUploadHtml(basicInfoHtml);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -509,7 +511,13 @@ const Profile = () => {
                 <div className="h-20 animate-pulse rounded-lg bg-gray-100" />
               </ProfileSection>
             ) : basicInfoHtml ? (
-              <div dangerouslySetInnerHTML={{ __html: basicInfoHtml }} />
+              protectedBasicInfoHtml ? (
+                <div dangerouslySetInnerHTML={{ __html: protectedBasicInfoHtml }} />
+              ) : (
+                <ProfileSection title="Thông tin cơ bản">
+                  <div className="h-20 animate-pulse rounded-lg bg-gray-100" />
+                </ProfileSection>
+              )
             ) : (
               <ProfileSection title="Thông tin cơ bản">
                 <p className="text-sm text-gray-500">Không thể tải thông tin cơ bản.</p>
