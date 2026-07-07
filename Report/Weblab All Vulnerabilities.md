@@ -2064,18 +2064,18 @@ Nếu kid đi vào command string rồi chạy qua shell,
 
 ## 1. Kết luận nhanh cho Blind Command Injection
 
-| Hạng mục | Giá trị |
-|---|---|
-| Số sink command execution | 2 sink |
-| Sink A - chính | `JwtUtils.resolveKeyFromKidCommand(kid)` |
-| Sink B - hidden chain | `QRCodeHelper.renderQrCode(qrContent)` |
-| Dangerous function sink A | `new ProcessBuilder("/bin/sh", "-c", command).start()` |
-| Dangerous function sink B | `Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command })` |
-| Source chính của Blind CI | JWT header `kid` trong `Authorization: Bearer <jwt>` |
-| Source vào hidden QR sink | SSTI template gọi `QRCodeHelper`, hoặc Deserialize gadget gọi `BookingRequest.getQrCode()` |
-| Normal business sources | Đã có guard cho signup/update email và booking `quote/hold/confirm` promotion code |
-| Blind signal | Không trả stdout trực tiếp; xác nhận bằng delay, file marker, DNS/OOB, log hoặc side effect |
-| File quan trọng | `JwtUtils`, `QRCodeHelper`, `BookingRequest`, `BookingServiceImpl`, `BookingController`, `AuthController`, `UserController`, `Payload/ModernRomePayloadGenerator.java` |
+| Hạng mục                  | Giá trị                                                                                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Số sink command execution | 2 sink                                                                                                                                                                 |
+| Sink A - chính            | `JwtUtils.resolveKeyFromKidCommand(kid)`                                                                                                                               |
+| Sink B - hidden chain     | `QRCodeHelper.renderQrCode(qrContent)`                                                                                                                                 |
+| Dangerous function sink A | `new ProcessBuilder("/bin/sh", "-c", command).start()`                                                                                                                 |
+| Dangerous function sink B | `Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command })`                                                                                                 |
+| Source chính của Blind CI | JWT header `kid` trong `Authorization: Bearer <jwt>`                                                                                                                   |
+| Source vào hidden QR sink | SSTI template gọi `QRCodeHelper`, hoặc Deserialize gadget gọi `BookingRequest.getQrCode()`                                                                             |
+| Normal business sources   | Đã có guard cho signup/update email và booking `quote/hold/confirm` promotion code                                                                                     |
+| Blind signal              | Không trả stdout trực tiếp; xác nhận bằng delay, file marker, DNS/OOB, log hoặc side effect                                                                            |
+| File quan trọng           | `JwtUtils`, `QRCodeHelper`, `BookingRequest`, `BookingServiceImpl`, `BookingController`, `AuthController`, `UserController`, `Payload/ModernRomePayloadGenerator.java` |
 
 > **Nhận định:** Blind Command Injection chính của WebLab là JWT `kid` injection. `QRCodeHelper` vẫn là command execution sink thật, nhưng hiện được giữ như hidden final sink cho hai chain khác: SSTI và Insecure Deserialization. Các nguồn business bình thường đã được guard để không biến QR sink thành Blind Command Injection chính.
 
