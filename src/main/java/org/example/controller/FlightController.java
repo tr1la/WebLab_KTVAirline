@@ -35,14 +35,14 @@ public class FlightController {
             @RequestParam Integer pageSize) {
         try {
             Pageable pageable = PageRequest.of(pageNum, pageSize);
-            
+
             // Convert LocalDate to LocalDateTime for start and end of day
             LocalDateTime dateTimeFrom = dateFrom.atStartOfDay();
             LocalDateTime dateTimeTo = dateTo.atTime(LocalTime.MAX);
-            
+
             List<Flight> flightList = flightService.searchFlights(
-                flightName, dateTimeFrom, dateTimeTo, departure, arrival, pageable);
-            
+                    flightName, dateTimeFrom, dateTimeTo, departure, arrival, pageable);
+
             if (ObjectUtils.isEmpty(flightList)) {
                 Map<String, Object> response = new HashMap<>();
                 response.put("status", "NOT_FOUND");
@@ -61,11 +61,21 @@ public class FlightController {
             response.put("message", "Lỗi server: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+        /*
+         * catch (Exception e) {
+         * String requestId = UUID.randomUUID().toString();
+         * logger.warn("Flight search failed, requestId={}", requestId, e);
+         * Map<String, Object> response = new HashMap<>();
+         * response.put("status", "ERROR");
+         * response.put("message", "Server Error");
+         * response.put("requestId", requestId);
+         * return ResponseEntity.internalServerError().body(response);
+         * }
+         */
     }
 
     @GetMapping(value = "/all")
-    public ResponseEntity<?> getAll(@RequestParam Integer pageNum
-            , @RequestParam Integer pageSize) {
+    public ResponseEntity<?> getAll(@RequestParam Integer pageNum, @RequestParam Integer pageSize) {
         try {
             Pageable pageable = PageRequest.of(pageNum, pageSize);
             List<Flight> flightList = flightService
@@ -134,7 +144,7 @@ public class FlightController {
     @PutMapping(value = "/list")
     public ResponseEntity<?> editFlights(@RequestBody List<Flight> transactions) {
         try {
-            for(Flight transaction : transactions){
+            for (Flight transaction : transactions) {
                 Flight savedFlight = flightService.save(transaction);
             }
             return ResponseEntity.ok().body("Edited");

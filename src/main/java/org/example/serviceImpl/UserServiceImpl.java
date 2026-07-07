@@ -145,6 +145,13 @@ public class UserServiceImpl implements UserService {
          *
          * file.transferTo(destination.toFile());
          * user.setAvatarUrl("/uploads/avatars/" + safeFilename);
+         *
+         * XXE/XMLDecoder chain fix:
+         * This upload sink must not be able to write into imports/promotions.
+         * /uploads/** owner checks only protect HTTP read-back; the promotion
+         * importer reads files directly from disk. Keep the promotion import
+         * directory outside user-writable upload paths, and make the importer
+         * process only queue-service-generated filenames/job records.
          */
 
         user.setAvatarUrl("/uploads/avatars/" + filename);

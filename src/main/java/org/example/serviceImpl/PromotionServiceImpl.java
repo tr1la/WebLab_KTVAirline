@@ -13,7 +13,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.beans.XMLDecoder;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -24,6 +29,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -112,14 +118,33 @@ public class PromotionServiceImpl implements PromotionService {
         Path destination = promotionDir.resolve(safeFilename).normalize();
         Path uploadingFile = promotionDir.resolve(safeFilename + ".uploading").normalize();
 
+        /*
+         * XXE/XMLDecoder queue fix:
+         * The importer should only process files created by a trusted queue path.
+         * Do not let a client-controlled filename decide the final queued file,
+         * and do not return absolute filesystem paths to the client.
+         *
+         * FIXED CODE:
+         *
+         * boolean useSafePromotionQueue = true;
+         * if (useSafePromotionQueue) {
+         * String queuedFilename = java.util.UUID.randomUUID() + ".xml";
+         * Path fixedDestination = promotionDir.resolve(queuedFilename).normalize();
+         * if (!fixedDestination.startsWith(promotionDir)) {
+         * throw new IllegalArgumentException("Invalid promotion import path");
+         * }
+         *
+         * file.transferTo(fixedDestination.toFile());
+         * return Map.of("status", "QUEUED", "fileName", queuedFilename);
+         * }
+         */
         file.transferTo(uploadingFile.toFile());
         Files.move(uploadingFile, destination, StandardCopyOption.REPLACE_EXISTING);
 
         return Map.of(
                 "status", "QUEUED",
                 "fileName", safeFilename,
-                "path", destination.toString()
-        );
+                "path", destination.toString());
     }
 
     @Scheduled(initialDelayString = "${app.promotion-import-initial-delay-ms:3000}", fixedDelayString = "${app.promotion-import-fixed-delay-ms:6000}")
@@ -143,11 +168,35 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     private void importPromotionXml(Path xmlFile) {
+        /*
+         * XXE/XMLDecoder fix:
+         * Do not parse uploaded or attacker-writable XML with java.beans.XMLDecoder.
+         * XMLDecoder is a Java object deserialization mechanism: readObject() can
+         * instantiate objects and invoke methods before the later instanceof
+         * Promotion check runs.
+         *
+         * FIXED CODE:
+         *
+         * boolean useSafePromotionXmlParser = true;
+         * if (useSafePromotionXmlParser) {
+         * try {
+         * Promotion promotion = parsePromotionXmlSafely(xmlFile);
+         * Promotion savedPromotion = importPromotion(promotion);
+         * logger.info("Imported promotion XML {} as promotion {}",
+         * xmlFile.getFileName(), savedPromotion.getCode());
+         * moveToProcessed(xmlFile);
+         * } catch (Exception e) {
+         * logger.warn("Failed to import promotion XML {}", xmlFile.getFileName(), e);
+         * }
+         * return;
+         * }
+         */
         try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(Files.newInputStream(xmlFile)))) {
             Object decodedObject = decoder.readObject();
             if (decodedObject instanceof Promotion promotion) {
                 Promotion savedPromotion = importPromotion(promotion);
-                logger.info("Imported promotion XML {} as promotion {}", xmlFile.getFileName(), savedPromotion.getCode());
+                logger.info("Imported promotion XML {} as promotion {}", xmlFile.getFileName(),
+                        savedPromotion.getCode());
             } else {
                 logger.info("Imported promotion XML {} as {}", xmlFile.getFileName(), decodedObject);
             }
@@ -155,6 +204,105 @@ public class PromotionServiceImpl implements PromotionService {
         } catch (Exception e) {
             logger.warn("Failed to import promotion XML {}", xmlFile.getFileName(), e);
         }
+    }
+
+    /*
+     * private Promotion parsePromotionXmlSafely(Path xmlFile) throws Exception {
+     * DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+     * factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+     * factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",
+     * true);
+     * factory.setFeature("http://xml.org/sax/features/external-general-entities",
+     * false);
+     * factory.setFeature("http://xml.org/sax/features/external-parameter-entities",
+     * false);
+     * factory.setFeature(
+     * "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+     * factory.setXIncludeAware(false);
+     * factory.setExpandEntityReferences(false);
+     * factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+     * factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+     *
+     * Document document = factory.newDocumentBuilder().parse(xmlFile.toFile());
+     * Element root = document.getDocumentElement();
+     * if (root == null || !"promotion".equals(root.getTagName())) {
+     * throw new IllegalArgumentException("Invalid promotion XML root");
+     * }
+     *
+     * Promotion promotion = new Promotion();
+     * promotion.setCode(requiredText(root, "code"));
+     * promotion.setTitle(requiredText(root, "title"));
+     * promotion.setDescription(optionalText(root, "description"));
+     * promotion.setDeparture(optionalText(root, "departure"));
+     * promotion.setDepartureCode(optionalText(root, "departureCode"));
+     * promotion.setArrival(optionalText(root, "arrival"));
+     * promotion.setArrivalCode(optionalText(root, "arrivalCode"));
+     * promotion.setSeatType(optionalSeatType(root, "seatType"));
+     * promotion.setDiscountType(optionalDiscountType(root, "discountType"));
+     * promotion.setDiscountValue(optionalBigDecimal(root, "discountValue"));
+     * promotion.setMinimumOrderAmount(optionalBigDecimal(root,
+     * "minimumOrderAmount"));
+     * promotion.setMaximumDiscountAmount(optionalBigDecimal(root,
+     * "maximumDiscountAmount"));
+     * promotion.setStartDate(requiredSqlDate(root, "startDate"));
+     * promotion.setEndDate(requiredSqlDate(root, "endDate"));
+     * promotion.setUsageLimit(optionalInteger(root, "usageLimit"));
+     * promotion.setUsedCount(optionalInteger(root, "usedCount"));
+     * promotion.setActive(optionalBoolean(root, "active"));
+     * promotion.setPictureLink(optionalText(root, "pictureLink"));
+     * promotion.setTerms(optionalText(root, "terms"));
+     * return promotion;
+     * }
+     */
+
+    private String requiredText(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing required promotion field: " + tagName);
+        }
+        return value;
+    }
+
+    private String optionalText(Element root, String tagName) {
+        NodeList nodes = root.getElementsByTagName(tagName);
+        if (nodes.getLength() == 0) {
+            return null;
+        }
+        String value = nodes.item(0).getTextContent();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private BigDecimal optionalBigDecimal(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        return value == null ? null : new BigDecimal(value);
+    }
+
+    private Integer optionalInteger(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        return value == null ? null : Integer.valueOf(value);
+    }
+
+    private Boolean optionalBoolean(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        return value == null ? null : Boolean.valueOf(value);
+    }
+
+    private java.sql.Date requiredSqlDate(Element root, String tagName) {
+        String value = requiredText(root, tagName);
+        return java.sql.Date.valueOf(value);
+    }
+
+    private PromotionDiscountType optionalDiscountType(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        return value == null ? null : PromotionDiscountType.valueOf(value.toUpperCase(Locale.ROOT));
+    }
+
+    private SeatType optionalSeatType(Element root, String tagName) {
+        String value = optionalText(root, tagName);
+        return value == null ? null : SeatType.valueOf(value.toUpperCase(Locale.ROOT));
     }
 
     private void moveToProcessed(Path xmlFile) throws IOException {
