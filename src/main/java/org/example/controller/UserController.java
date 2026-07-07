@@ -14,10 +14,16 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/v1/user")
 public class UserController {
+    private static final Pattern SAFE_PROFILE_QR_EMAIL = Pattern.compile(
+            "^[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@"
+                    + "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                    + "(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$");
+
     @Autowired
     UserService userService;
 
@@ -100,6 +106,7 @@ public class UserController {
                 }
 
                 User existingUser = userService.findById(user.getId());
+                normalizeEditableEmail(user, existingUser);
                 user.setPassword(existingUser.getPassword());
                 user.setRole(existingUser.getRole());
                 user.setDeleted(existingUser.isDeleted());
@@ -133,6 +140,8 @@ public class UserController {
                 return ResponseEntity.badRequest()
                         .body("Not found");
             }
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e){
             return ResponseEntity.internalServerError()
                     .body("Server Error");
@@ -155,6 +164,19 @@ public class UserController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Server Error");
         }
+    }
+
+    private void normalizeEditableEmail(User user, User existingUser) {
+        if (user.getEmail() == null) {
+            user.setEmail(existingUser.getEmail());
+            return;
+        }
+
+        String email = user.getEmail().trim();
+        if (!SAFE_PROFILE_QR_EMAIL.matcher(email).matches()) {
+            throw new IllegalArgumentException("Invalid email");
+        }
+        user.setEmail(email);
     }
 
     private boolean canAccessUser(Authentication authentication, Integer userId) {

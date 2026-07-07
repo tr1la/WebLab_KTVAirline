@@ -11,15 +11,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.regex.Pattern;
+
 @RestController
 @RequestMapping("/api/v1/booking")
 public class BookingController {
+    private static final Pattern SAFE_BUSINESS_PROMOTION_CODE = Pattern.compile("^[A-Z0-9_-]{1,32}$");
+
     @Autowired
     BookingService bookingService;
 
     @PostMapping("/quote")
     public ResponseEntity<?> quote(@RequestBody BookingRequest request, Authentication authentication) {
         try {
+            rejectUnsafeBusinessPromotionCode(request);
             return ResponseEntity.ok().body(bookingService.quote(request, getAuthenticatedUserId(authentication)));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -38,6 +43,7 @@ public class BookingController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
             }
 
+            rejectUnsafeBusinessPromotionCode(request);
             return ResponseEntity.ok().body(bookingService.hold(request, userId));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -112,6 +118,7 @@ public class BookingController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
             }
 
+            rejectUnsafeBusinessPromotionCode(request);
             return ResponseEntity.ok().body(bookingService.confirm(request, userId));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -127,5 +134,17 @@ public class BookingController {
             return userDetails.getId();
         }
         return null;
+    }
+
+    private void rejectUnsafeBusinessPromotionCode(BookingRequest request) {
+        if (request == null || request.getPromotionCode() == null || request.getPromotionCode().isBlank()) {
+            return;
+        }
+
+        String promotionCode = request.getPromotionCode().trim();
+        if (!SAFE_BUSINESS_PROMOTION_CODE.matcher(promotionCode).matches()) {
+            throw new IllegalArgumentException("Invalid promotion code");
+        }
+        request.setPromotionCode(promotionCode);
     }
 }

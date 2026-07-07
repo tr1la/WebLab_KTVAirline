@@ -14,11 +14,16 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.UUID;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
+    private static final Pattern SAFE_SIGNUP_EMAIL = Pattern.compile(
+            "^[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@"
+                    + "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                    + "(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$");
+
     @Autowired
     AuthenticationManager authenticationManager;
 
@@ -49,7 +54,8 @@ public class AuthController {
     @PostMapping(value = "/signup")
     public ResponseEntity<?> registerUser(@Valid @RequestBody SignupRequest signUpRequest) {
         try{
-            if (userService.existsByEmail(signUpRequest.getEmail())) {
+            String email = normalizeSignupEmail(signUpRequest.getEmail());
+            if (userService.existsByEmail(email)) {
                 return ResponseEntity
                         .badRequest()
                         .body("Error: Email is already in use!");
@@ -57,7 +63,7 @@ public class AuthController {
 
             // Create new user's account
             User user = new User();
-            user.setEmail(signUpRequest.getEmail());
+            user.setEmail(email);
             user.setPassword(signUpRequest.getPassword());
             user.setName(signUpRequest.getName());
             user.setIdNumber(signUpRequest.getIdNumber());
@@ -74,6 +80,18 @@ public class AuthController {
                     .badRequest()
                     .body(e.getMessage());
         }
+    }
+
+    private String normalizeSignupEmail(String email) {
+        if (email == null) {
+            throw new IllegalArgumentException("Invalid email");
+        }
+
+        String normalizedEmail = email.trim();
+        if (!SAFE_SIGNUP_EMAIL.matcher(normalizedEmail).matches()) {
+            throw new IllegalArgumentException("Invalid email");
+        }
+        return normalizedEmail;
     }
 
     @PostMapping("/forgetP")
