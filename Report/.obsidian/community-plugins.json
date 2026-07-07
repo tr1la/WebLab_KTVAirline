@@ -10,5 +10,7 @@
   "obsidian-paste-image-rename",
   "url-into-selection",
   "obsidian-excalidraw-plugin",
-  "number-headings-obsidian"
+  "number-headings-obsidian",
+  "obsidian-enhancing-export",
+  "obsidian-pandoc"
 ]
