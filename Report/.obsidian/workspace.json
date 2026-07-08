@@ -75,7 +75,7 @@
             }
           },
           {
-            "id": "da0bbdeda7d8f02e",
+            "id": "1fdc0f533cb8b7cf",
             "type": "leaf",
             "state": {
               "type": "mk-path-view",
@@ -89,8 +89,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "e864ebcf523e551f",
@@ -216,7 +215,8 @@
       "bases:Create new base": false,
       "table-editor-obsidian:Advanced Tables Toolbar": false,
       "obsidian-git:Open Git source control": false,
-      "obsidian-excalidraw-plugin:New drawing": false
+      "obsidian-excalidraw-plugin:New drawing": false,
+      "copilot:Open Copilot Chat": false
     }
   },
   "active": "4e92e9decb56d0fe",

