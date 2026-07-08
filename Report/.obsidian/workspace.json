@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "f145b51b5b7ddaee",
+        "id": "1888142eb1f69177",
         "type": "tabs",
         "children": [
           {
-            "id": "3f61151050ddd7b7",
+            "id": "4e92e9decb56d0fe",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -84,7 +84,8 @@
               "title": "Navigator"
             }
           }
-        ]
+        ],
+        "currentTab": 3
       }
     ],
     "direction": "horizontal",
@@ -216,7 +217,7 @@
       "obsidian-excalidraw-plugin:New drawing": false
     }
   },
-  "active": "cc3f2c6d8e372b11",
+  "active": "da0bbdeda7d8f02e",
   "lastOpenFiles": [
     "Weblab All Vulnerabilities.md",
     "Excalidraw/Drawing 2026-07-06 09.21.26.excalidraw.md",
