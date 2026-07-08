@@ -1,7 +1,6 @@
 [
   "obsidian-minimal-settings",
   "make-md",
-  "floating-toc",
   "table-editor-obsidian",
   "obsidian-outliner",
   "obsidian-git",
@@ -10,5 +9,6 @@
   "obsidian-paste-image-rename",
   "url-into-selection",
   "obsidian-excalidraw-plugin",
-  "number-headings-obsidian"
+  "number-headings-obsidian",
+  "floating-toc"
 ]

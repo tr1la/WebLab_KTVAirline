@@ -115,18 +115,26 @@
   }
 
   /* 4. Tự động thu nhỏ BIỂU ĐỒ (Mermaid) và HÌNH ẢNH quá khổ */
-  .mermaid,
+  .mermaid {
+    display: block !important;
+    /* TUYỆT ĐỐI KHÔNG DÙNG FLEX ĐỂ BẢO TOÀN LỆNH NGẮT TRANG */
+    text-align: center !important;
+    /* Căn giữa an toàn thay cho flex */
+    margin: 20px 0 !important;
+    page-break-inside: avoid !important;
+    /* Cú pháp cũ cho độ tương thích */
+    break-inside: avoid !important;
+    /* Cú pháp mới siêu mạnh để ép Chromium ngắt trang */
+  }
+
   .mermaid svg,
   img {
     max-width: 100% !important;
-    max-height: 36cm !important;
-    /* Ép chiều cao tối đa không vượt quá 1 trang A4 */
-    object-fit: contain !important;
-    /* Giữ nguyên tỷ lệ gốc, không làm méo hình */
+    max-height: 85vh !important;
+    /* Chiếm tối đa 85% chiều cao của không gian in khả dụng, tự động trừ đi lề Default */
+    width: auto !important;
+    height: auto !important;
     page-break-inside: avoid !important;
-    /* Không cho phép ngắt hình giữa chừng */
-    display: block !important;
-    margin: 16px auto !important;
-    /* Căn giữa biểu đồ/hình ảnh */
+    break-inside: avoid !important;
   }
 }
