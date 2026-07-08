@@ -1,3 +1,56 @@
+/* --- BỘ MÀU CHUẨN TỪ ẢNH CỦA BẠN (DÀNH CHO PDF & READING VIEW) --- */
+
+/* 1. Nền đen nhạt và Text trắng xám cơ bản */
+.markdown-rendered pre,
+.markdown-rendered code {
+  color: #dcdfe4 !important;
+}
+
+/* 2. Vàng nhạt (Tên Class, Kiểu dữ liệu: String, Path, Integer) */
+.markdown-rendered .token.class-name,
+.markdown-rendered .token.builtin {
+  color: #e5c07b !important;
+}
+
+/* 3. Xanh lơ / Cyan (Biến số, Tham số, Hằng số: qrContent, filename) */
+.markdown-rendered .token.variable,
+.markdown-rendered .token.property,
+.markdown-rendered .token.constant {
+  color: #61afef !important;
+}
+
+/* 4. Đỏ san hô (Toán tử: =, ==, ||, ?, :, +) */
+.markdown-rendered .token.operator {
+  color: #e06c75 !important;
+}
+
+/* 5. Tím nhạt (Từ khóa: public, return, new, null) */
+.markdown-rendered .token.keyword,
+.markdown-rendered .token.boolean {
+  color: #c678dd !important;
+}
+
+/* 6. Xanh rêu (Chuỗi / String: "anonymous-member", ".svg") */
+.markdown-rendered .token.string {
+  color: #98c379 !important;
+}
+
+/* 7. Trắng / Xám sáng (Tên hàm: renderQrCode, isBlank, resolve) */
+.markdown-rendered .token.function {
+  color: #dcdfe4 !important;
+}
+
+/* 8. Xám tối (Comment) */
+.markdown-rendered .token.comment {
+  color: #5c6370 !important;
+  font-style: italic !important;
+}
+
+/* 9. Xám nhạt cho Dấu câu ({, }, (, ), ;, .) */
+.markdown-rendered .token.punctuation {
+  color: #abb2bf !important;
+}
+
 /* CSS XỬ LÝ CẤU TRÚC PDF (KHÔNG CAN THIỆP MÀU SẮC THEME) */
 @media print {
 
