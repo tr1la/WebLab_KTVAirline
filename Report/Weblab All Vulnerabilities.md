@@ -2708,10 +2708,10 @@ sequenceDiagram
 
 | Step                         | Status | Security note                                                         |
 | ---------------------------- | ------ | --------------------------------------------------------------------- |
-| `theme` query param          | Rủi ro  | Request-time theme selector đi vào loader                             |
-| `user.profileTheme`          | Rủi ro  | Persisted selector chưa enforce allowlist                             |
-| Filesystem theme/log content | Rủi ro  | Content được compile thành template                                   |
-| `QRCodeHelper?new()`         | Rủi ro  | Template có thể truyền payload trực tiếp, không phụ thuộc email guard |
+| `theme` query param          | Rủi ro | Request-time theme selector đi vào loader                             |
+| `user.profileTheme`          | Rủi ro | Persisted selector chưa enforce allowlist                             |
+| Filesystem theme/log content | Rủi ro | Content được compile thành template                                   |
+| `QRCodeHelper?new()`         | Rủi ro | Template có thể truyền payload trực tiếp, không phụ thuộc email guard |
 
 #### 3.2.3. Booking quote/hold/direct confirm source -> sink, đã bảo vệ
 
@@ -2780,11 +2780,11 @@ sequenceDiagram
     QR->>Shell: qrencode command with guarded content
 ```
 
-| Path | Status | Security note |
-|---|---|---|
-| `/api/v1/booking/quote` | Protected | Guard chạy trước `bookingService.quote(...)` |
-| `/api/v1/booking/hold` | Protected | Guard chạy trước `.qrCode(request.getQrCode())` |
-| `/api/v1/booking/confirm` direct | Protected | Guard chạy trước direct confirm service path |
+| Path                             | Status  | Security note                                   |
+| -------------------------------- | ------- | ----------------------------------------------- |
+| `/api/v1/booking/quote`          | An toàn | Guard chạy trước `bookingService.quote(...)`    |
+| `/api/v1/booking/hold`           | An toàn | Guard chạy trước `.qrCode(request.getQrCode())` |
+| `/api/v1/booking/confirm` direct | An toàn | Guard chạy trước direct confirm service path    |
 
 #### 3.2.4. Confirm order fallback source -> sink, rủi ro thấp
 
@@ -2814,11 +2814,11 @@ flowchart TD
     C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7
 ```
 
-| Source | Status | Security note |
-|---|---|---|
-| `orderId` | Numeric | Không mang shell metacharacter |
-| `transactionIds` | Parsed integer list | Không mang shell metacharacter |
-| `promotionCode` | Not set | `buildQrCodeContent()` dùng `NO_PROMOTION` |
+| Source           | Status              | Security note                              |
+| ---------------- | ------------------- | ------------------------------------------ |
+| `orderId`        | Numeric             | Không mang shell metacharacter             |
+| `transactionIds` | Parsed integer list | Không mang shell metacharacter             |
+| `promotionCode`  | Kh                  | `buildQrCodeContent()` dùng `NO_PROMOTION` |
 
 #### 3.2.5. Draft import / Deserialize source -> sink, còn nguy cơ
 
