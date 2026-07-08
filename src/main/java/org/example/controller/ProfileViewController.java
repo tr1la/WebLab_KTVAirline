@@ -11,7 +11,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,15 +35,14 @@ public class ProfileViewController {
 
     @GetMapping(value = "/api/v1/profile/basic-info", produces = MediaType.TEXT_HTML_VALUE)
     @ResponseBody
-    public String basicInfo(@RequestParam(value = "theme", required = false) String theme,
-                            Authentication authentication) {
+    public String basicInfo(Authentication authentication) {
         User user = resolveAuthenticatedUser(authentication);
 
-        String themeName = resolveThemeName(user, theme);
+        String themeName = resolveThemeName(user);
         /*
-         * SINK REACHABILITY: the optional theme preview parameter is bound by
-         * Spring before it reaches this code. Stored profileTheme is the fallback.
-         * Both values are passed directly to the server-side theme loader.
+         * SINK REACHABILITY: profileTheme is persisted from the authenticated
+         * user's JSON profile update, then passed directly to the server-side theme
+         * loader when the profile card is rendered.
          *
          * FIXED CODE:
          *
@@ -100,14 +98,11 @@ public class ProfileViewController {
         model.put("phoneNum", valueOrDefault(user.getPhoneNum()));
         model.put("gender", formatGender(user.getGender()));
         model.put("address", valueOrDefault(user.getAddress()));
-        model.put("profileTheme", new ProfileTheme(resolveThemeName(user, null)));
+        model.put("profileTheme", new ProfileTheme(resolveThemeName(user)));
         return model;
     }
 
-    private String resolveThemeName(User user, String requestedTheme) {
-        if (StringUtils.hasText(requestedTheme)) {
-            return requestedTheme.trim();
-        }
+    private String resolveThemeName(User user) {
         if (user == null || !StringUtils.hasText(user.getProfileTheme())) {
             return DEFAULT_THEME;
         }
