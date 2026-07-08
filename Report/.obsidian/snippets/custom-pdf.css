@@ -1,0 +1,53 @@
+/* CSS XỬ LÝ CẤU TRÚC PDF (KHÔNG CAN THIỆP MÀU SẮC THEME) */
+@media print {
+
+  /* 1. Trị dứt điểm lỗi tràn lề và cắt xén Code Block */
+  pre {
+    white-space: pre-wrap !important;
+    /* Ép bẻ dòng xuống khi code quá dài */
+    word-break: break-all !important;
+    /* Phá chuỗi ký tự liên tục nếu cần */
+    page-break-inside: avoid !important;
+    /* Tuyệt đối không để một khối code bị chặt đôi sang trang sau */
+  }
+
+  /* 2. Tối ưu hiển thị Bảng (Table) không bị tràn ngang */
+  table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    page-break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    /* Không cắt ngang xương một hàng trong bảng */
+    page-break-after: auto !important;
+  }
+
+  th,
+  td {
+    word-break: break-word !important;
+    /* Ép bẻ từ trong ô */
+    white-space: pre-wrap !important;
+  }
+
+  /* 3. Quản lý ngắt trang thông minh (Chống mồ côi tiêu đề) */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    page-break-after: avoid !important;
+    /* Ép tiêu đề phải đi liền với nội dung bên dưới */
+    page-break-inside: avoid !important;
+  }
+
+  /* 4. Tự động co dãn sơ đồ luồng dữ liệu (Mermaid) */
+  .mermaid,
+  .mermaid svg {
+    max-width: 100% !important;
+    height: auto !important;
+    page-break-inside: avoid !important;
+  }
+}
