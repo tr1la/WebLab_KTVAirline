@@ -55,5 +55,10 @@
   "defaultExportDirectoryMode": "Auto",
   "openExportedFile": true,
   "env": {},
-  "showExportProgressBar": true
+  "showExportProgressBar": true,
+  "lastExportDirectory": {
+    "darwin": "/Users/tr1la/Documents"
+  },
+  "lastExportType": "PDF",
+  "lastEditName": "PDF"
 }
