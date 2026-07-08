@@ -3,7 +3,7 @@
 /* 1. Nền đen nhạt và Text trắng xám cơ bản */
 .markdown-rendered pre,
 .markdown-rendered code {
-  color: #dcdfe4 !important;
+  color: #2d2d2d !important;
 }
 
 /* 2. Vàng nhạt (Tên Class, Kiểu dữ liệu: String, Path, Integer) */
@@ -37,7 +37,7 @@
 
 /* 7. Trắng / Xám sáng (Tên hàm: renderQrCode, isBlank, resolve) */
 .markdown-rendered .token.function {
-  color: #dcdfe4 !important;
+  color: #39393a !important;
 }
 
 /* 8. Xám tối (Comment) */
@@ -48,40 +48,59 @@
 
 /* 9. Xám nhạt cho Dấu câu ({, }, (, ), ;, .) */
 .markdown-rendered .token.punctuation {
-  color: #abb2bf !important;
+  color: #2e2e2e !important;
 }
 
-/* CSS XỬ LÝ CẤU TRÚC PDF (KHÔNG CAN THIỆP MÀU SẮC THEME) */
+/* ========================================================== */
+/* CSS XỬ LÝ CẤU TRÚC PDF (KHÔNG CAN THIỆP MÀU SẮC THEME CODE)*/
+/* ========================================================== */
 @media print {
 
   /* 1. Trị dứt điểm lỗi tràn lề và cắt xén Code Block */
   pre {
     white-space: pre-wrap !important;
-    /* Ép bẻ dòng xuống khi code quá dài */
     word-break: break-all !important;
-    /* Phá chuỗi ký tự liên tục nếu cần */
     page-break-inside: avoid !important;
-    /* Tuyệt đối không để một khối code bị chặt đôi sang trang sau */
   }
 
-  /* 2. Tối ưu hiển thị Bảng (Table) không bị tràn ngang */
+  /* 2. Tối ưu hiển thị BẢNG (TABLE) chuyên nghiệp */
   table {
     width: 100% !important;
     table-layout: fixed !important;
     page-break-inside: auto !important;
+    border-collapse: collapse !important;
+    /* Gộp các đường viền lại cho sắc nét */
+    margin: 16px 0 !important;
+    /* Tạo khoảng không trên dưới bảng */
   }
 
   tr {
     page-break-inside: avoid !important;
-    /* Không cắt ngang xương một hàng trong bảng */
     page-break-after: auto !important;
+  }
+
+  /* Hiệu ứng ngựa vằn (Zebra Striping) giúp dễ đọc các bảng liệt kê dài */
+  tr:nth-child(even) {
+    background-color: #f8f9fa !important;
   }
 
   th,
   td {
     word-break: break-word !important;
-    /* Ép bẻ từ trong ô */
     white-space: pre-wrap !important;
+    border: 1px solid #d1d5db !important;
+    /* Cạnh viền màu xám tinh tế */
+    padding: 10px 12px !important;
+    /* Tạo không gian cho chữ dễ thở */
+    text-align: left !important;
+  }
+
+  th {
+    background-color: #e5e7eb !important;
+    /* Đổ màu nền xám cho hàng tiêu đề */
+    font-weight: 600 !important;
+    /* In đậm tiêu đề */
+    color: #111111 !important;
   }
 
   /* 3. Quản lý ngắt trang thông minh (Chống mồ côi tiêu đề) */
@@ -92,15 +111,22 @@
   h5,
   h6 {
     page-break-after: avoid !important;
-    /* Ép tiêu đề phải đi liền với nội dung bên dưới */
     page-break-inside: avoid !important;
   }
 
-  /* 4. Tự động co dãn sơ đồ luồng dữ liệu (Mermaid) */
+  /* 4. Tự động thu nhỏ BIỂU ĐỒ (Mermaid) và HÌNH ẢNH quá khổ */
   .mermaid,
-  .mermaid svg {
+  .mermaid svg,
+  img {
     max-width: 100% !important;
-    height: auto !important;
+    max-height: 36cm !important;
+    /* Ép chiều cao tối đa không vượt quá 1 trang A4 */
+    object-fit: contain !important;
+    /* Giữ nguyên tỷ lệ gốc, không làm méo hình */
     page-break-inside: avoid !important;
+    /* Không cho phép ngắt hình giữa chừng */
+    display: block !important;
+    margin: 16px auto !important;
+    /* Căn giữa biểu đồ/hình ảnh */
   }
 }
