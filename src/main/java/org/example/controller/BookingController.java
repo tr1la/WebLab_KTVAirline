@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
+
 import java.util.regex.Pattern;
 
 @RestController
@@ -109,6 +111,17 @@ public class BookingController {
             return ResponseEntity.internalServerError().body("Server Error");
         }
     }
+    /*
+     * @PostMapping(value = "/draft/import", consumes =
+     * MediaType.APPLICATION_JSON_VALUE)
+     * public ResponseEntity<?> importDraft(@Valid @RequestBody BookingRequest
+     * draft,
+     * Authentication authentication) {
+     * Integer userId = getAuthenticatedUserId(authentication);
+     * rejectUnsafeBusinessPromotionCode(draft);
+     * return ResponseEntity.ok().body(bookingService.quote(draft, userId));
+     * }
+     */
 
     @PostMapping("/confirm")
     public ResponseEntity<?> confirm(@RequestBody BookingRequest request, Authentication authentication) {
