@@ -4937,7 +4937,7 @@ order.setAppliedPromotionCodes(appliedPromotions.stream()
 
 ## 7. Tổng kết Race Condition
 
-Race Condition Limit Overrun trong WebLab có sink chính:
+Race Condition Limit Overrun trong WebLab:
 
 ```mermaid
 flowchart TD
@@ -4957,4 +4957,4 @@ flowchart TD
 2. Promotion stacking xảy ra vì `BookingOrder` không bị lock trong `applyPromotion`.
 3. `APPLIED_PROMOTION_CODES` là string snapshot, không phải constraint.
 4. Native update trừ từ `TOTAL_AMOUNT` khiến mỗi request song song đều có tác động thật.
-5. Fix đúng là lock order, unique `(order,promotion)`, và tính lại total từ `SUBTOTAL` thay vì decrement dần.
+5. Fix đúng là lock order, unique `(order,promotion)`, và tính lại total từ `SUBTOTAL` thay vì trừ dần.
