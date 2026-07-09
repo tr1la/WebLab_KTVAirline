@@ -4206,7 +4206,64 @@ java --add-opens java.base/java.util=ALL-UNNAMED \
   ModernRomePayloadGenerator "$HOST" "$PORT" "$OUTPUT" "$TRANSACTION_ID"
 ```
 
-### 3.6. Truy ngược từ `getQrCode()` tới hidden command sink
+### 3.6. Vì sao không dùng chuỗi Rome gốc trên Java 17 của WebLab
+
+Chuỗi Rome gốc kiểu ysoserial thường dùng Rome `ObjectBean` làm trigger, nhưng object đích hay được wrap là JDK internal `TemplatesImpl`. Mục tiêu của chuỗi đó là ép JavaBean getter như `getOutputProperties()` chạy, từ đó đi vào `TemplatesImpl.newTransformer()` và load bytecode độc hại.
+
+Shape rút gọn:
+
+```text
+HashMap.readObject()
+-> ObjectBean.hashCode()
+-> EqualsBean.beanHashCode()
+-> inner ObjectBean.toString()
+-> ToStringBean JavaBean introspection
+-> TemplatesImpl.getOutputProperties()
+-> TemplatesImpl.newTransformer()
+-> load translet bytecode
+```
+
+Trên WebLab này không chọn chuỗi gốc vì project chạy Java 17:
+
+```xml
+<!-- File: pom.xml -->
+<java.version>17</java.version>
+<maven.compiler.release>${java.version}</maven.compiler.release>
+```
+
+Vấn đề của Rome gốc trên Java 17:
+
+| Điểm phụ thuộc của Rome gốc | Vì sao vướng trên Java 17 |
+|---|---|
+| `com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl` | Đây là JDK internal class trong module `java.xml`, không phải API public ổn định |
+| Ghi private fields như `_bytecodes`, `_name`, `_tfactory` | Strong encapsulation chặn reflective access nếu không có `--add-opens java.xml/...` |
+| Gọi internal Xalan/translet classes | Có thể vướng `IllegalAccessError`/`InaccessibleObjectException` khi module không export/open package |
+| Cần option mở module trên target JVM | Attacker không kiểm soát startup flags của server WebLab |
+
+Điểm dễ nhầm: script generator hiện có dùng `--add-opens java.base/java.util=ALL-UNNAMED`, nhưng flag đó chỉ chạy ở **máy tạo payload** để reflection sửa `HashMap.table`:
+
+```bash
+# File: Payload/gen-modern-rome-payload.sh
+java --add-opens java.base/java.util=ALL-UNNAMED \
+  -cp "$GENERATOR_CLASSES:$PROJECT_CP" \
+  ModernRomePayloadGenerator "$HOST" "$PORT" "$OUTPUT" "$TRANSACTION_ID"
+```
+
+Flag này không mở `java.xml` trên JVM server khi server deserialize payload. Vì vậy nó không giải quyết được vấn đề của Rome gốc dựa vào `TemplatesImpl`.
+
+WebLab dùng Rome theo hướng application-specific thay vì Rome gốc:
+
+| Tiêu chí | Rome gốc / ysoserial-style | WebLab Modern Rome chain |
+|---|---|---|
+| Object đích | `TemplatesImpl` internal JDK class | `org.example.payload.BookingRequest` app class |
+| Cách tạo impact | Load bytecode qua Xalan translet | Gọi getter app có side effect |
+| Phụ thuộc module Java 17 | Có, cần mở `java.xml` internal package | Không cần mở module trên target |
+| Getter được gọi | `getOutputProperties()` | `getQrCode()` |
+| Sink cuối | `TemplatesImpl.newTransformer()` | `QRCodeHelper.renderQrCode(...)` |
+
+Kết luận: Rome vẫn dùng được làm **getter trigger**, nhưng không dùng chuỗi Rome gốc vì Java 17 khóa đường `TemplatesImpl`. Chain trong WebLab thay `TemplatesImpl` bằng object business `BookingRequest`, tận dụng getter `getQrCode()` vốn đã gọi QR helper.
+
+### 3.7. Truy ngược từ `getQrCode()` tới hidden command sink
 
 Getter side effect:
 
