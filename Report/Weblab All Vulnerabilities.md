@@ -3861,12 +3861,12 @@ server.tomcat.accesslog.pattern=%h %l %u %t "%m %U %H" %s %b
 
 Nguyên tắc:
 
-| Fix | Lý do |
-|---|---|
-| Log ở ngoài project/theme root | LFI trong app khó đọc được log |
+| Fix                                        | Lý do                                  |
+| ------------------------------------------ | -------------------------------------- |
+| Log ở ngoài project/theme root             | LFI trong app khó đọc được log         |
 | Không log User-Agent/Referer nếu không cần | Giảm nguồn attacker-controlled content |
-| Không render log bằng template engine | Chặn log poisoning nâng cấp thành SSTI |
-| Rotate/permission log chặt | Giảm cửa sổ khai thác và rò rỉ |
+| Không render log bằng template engine      | Chặn log poisoning nâng cấp thành SSTI |
+| Rotate/permission log chặt                 | Giảm cửa sổ khai thác và rò rỉ         |
 
 ### 5.3. Fix điểm giao với SSTI
 
@@ -3904,5 +3904,12 @@ Detect kết hợp SSTI:
 Poison Freemarker payload vào access log
 -> LFI đọc access.log
 -> new Template(...log content...)
--> object-chain hoặc dev-supplied helper được evaluate
+-> object-chain hoặc dev-supplied helper được thực thi
 ```
+
+
+
+# Deserialize 
+
+***
+
