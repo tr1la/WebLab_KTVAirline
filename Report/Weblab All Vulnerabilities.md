@@ -3817,12 +3817,12 @@ sequenceDiagram
 
 Kết luận kết hợp:
 
-| Phase | Vulnerability detect riêng | Evidence |
-|---|---|---|
-| Phase 1 | Log Poisoning | Attacker marker nằm trong `logs/access.log` |
-| Phase 2 | LFI | Response profile render lại marker từ log |
-| Phase 3 | SSTI upgrade | Freemarker expression trong log được evaluate |
-| Phase 4 | Hidden command sink | `QRCodeHelper?new()` hoặc object-chain tạo side effect |
+| Phase   | Vulnerability detect riêng | Evidence                                               |
+| ------- | -------------------------- | ------------------------------------------------------ |
+| Phase 1 | Log Poisoning              | Attacker marker nằm trong `logs/access.log`            |
+| Phase 2 | LFI                        | Response profile render lại marker từ log              |
+| Phase 3 | SSTI upgrade               | Freemarker expression trong log được thực thi          |
+| Phase 4 | Hidden command sink        | `QRCodeHelper?new()` hoặc object-chain tạo side effect |
 
 ***
 
