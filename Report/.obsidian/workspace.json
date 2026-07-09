@@ -1,14 +1,14 @@
 {
   "main": {
-    "id": "d35cb3134ab3cf63",
+    "id": "5324373015726ba8",
     "type": "split",
     "children": [
       {
-        "id": "e28119a0ef8d403b",
+        "id": "853322365458d8a2",
         "type": "tabs",
         "children": [
           {
-            "id": "4abae46fb307e78e",
+            "id": "1307def738752f52",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -71,7 +71,7 @@
             }
           },
           {
-            "id": "d309625216a21e43",
+            "id": "a557bedc8541a62e",
             "type": "leaf",
             "state": {
               "type": "mk-path-view",
@@ -216,8 +216,9 @@
       "homepage:Open homepage": false
     }
   },
-  "active": "4abae46fb307e78e",
+  "active": "1307def738752f52",
   "lastOpenFiles": [
+    "Home.md",
     "Weblab All Vulnerabilities.md",
     "Weblab All Vulnerabilities.html",
     "Excalidraw/Drawing 2026-07-06 09.21.26.excalidraw.md",
