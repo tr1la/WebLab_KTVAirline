@@ -3983,17 +3983,18 @@ flowchart TD
 
 ### 3.1. Fuzz dangerous function để tìm sink candidate
 
-Với Deserialize, các handle quan trọng là native serialization APIs, raw byte endpoints, gadget dependencies và side-effect getters.
+Với Deserialize, các handle quan trọng là native serialization APIs, raw byte endpoints, **các họ dependency có gadget chain đã biết**, collection trigger, JavaBean introspection và side-effect getters.
 
-| Nhóm dangerous function / signal | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
-|---|---|---|---|
-| Native Java deserialize | `ObjectInputStream`, `readObject` | `BookingServiceImpl.importDraft(...)` | Sink chính |
-| Native Java serialize | `ObjectOutputStream`, `writeObject` | `BookingServiceImpl.saveDraft(...)` | Business feature tạo `.ser` hợp lệ |
-| Raw byte source | `application/octet-stream`, `byte[]` | `BookingController.importDraft(...)` | Source không qua JSON validation |
-| Serializable payload | `implements Serializable` | `BookingRequest implements Serializable` | Object business có thể nằm trong graph |
-| Gadget dependency | `rome`, `ObjectBean` | `rome:rome:1.0` trong `pom.xml` | Rome gadget chain khả dụng |
-| Getter side effect | `getQrCode`, `renderQrCode` | `BookingRequest.getQrCode()` | Getter không thuần, có side effect |
-| Hidden command sink | `Runtime.exec`, `/bin/sh -c` | `QRCodeHelper.renderQrCode(...)` | Impact cuối của chain |
+| Nhóm dangerous function / signal | Pattern fuzz trong code                                                                                                                                                                     | Candidate tìm thấy                                         | Kết luận                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Native Java deserialize          | `ObjectInputStream`, `readObject`, `readUnshared`                                                                                                                                           | `BookingServiceImpl.importDraft(...)`                      | Sink chính                                                                                                            |
+| Native Java serialize            | `ObjectOutputStream`, `writeObject`                                                                                                                                                         | `BookingServiceImpl.saveDraft(...)`                        | Business feature tạo `.ser` hợp lệ                                                                                    |
+| Raw byte source                  | `application/octet-stream`, `byte[]`, `.ser`                                                                                                                                                | `BookingController.importDraft(...)`, `BookingHistory.jsx` | Source không qua JSON validation                                                                                      |
+| Serializable payload             | `implements Serializable`, `serialVersionUID`                                                                                                                                               | `BookingRequest implements Serializable`                   | Object business có thể nằm trong graph                                                                                |
+| Vulnerable gadget dependencies   | `commons-collections`, `rome`, `groovy`, `commons-beanutils`, `c3p0`, `xalan`, `spring-beans`, `aspectjweaver`, `clojure`, `bsh`, `javassist` trong `pom.xml`, `dependency:tree`, classpath | `rome:rome:1.0` trong `pom.xml`                            | Có dependency thuộc nhóm hay xuất hiện trong gadget chain; flow này chọn Rome vì có getter-introspection path phù hợp |
+| Rome gadget classes              | `ObjectBean`, `EqualsBean`, `ToStringBean`, `BeanIntrospector`, `PropertyDescriptor`, `getReadMethod`, `Method.invoke`                                                                      | `com.sun.syndication.feed.impl.ObjectBean` từ Rome 1.0     | Rome có thể gọi JavaBean getter của object đích                                                                       |
+| Getter side effect               | `get[A-Z].*`                                                                                                                                                                                | `BookingRequest.getQrCode()`                               | Getter không thuần, có side effect                                                                                    |
+| Hidden command sink              | `Runtime.exec`, `ProcessBuilder`, `/bin/sh -c`, `exec(`                                                                                                                                     | `QRCodeHelper.renderQrCode(...)`                           | Impact cuối của chain                                                                                                 |
 
 ### 3.2. Sink `ObjectInputStream.readObject()`
 
