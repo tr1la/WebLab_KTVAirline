@@ -4505,20 +4505,19 @@ Rome được dùng được vì:
 
 ## 1. Kết luận nhanh cho Race Condition Limit Overrun
 
-| Thuộc tính | Giá trị |
-|---|---|
-| Entry tạo order | `POST /api/v1/booking/hold` |
-| Entry race chính | `POST /api/v1/booking/apply-promotion` |
-| Entry hoàn tất booking | `POST /api/v1/booking/confirm` |
-| Quyền truy cập | `ROLE_USER` hoặc `ROLE_ADMIN` |
-| Source chính | JSON `orderId`, `promotionCode` |
-| Sink chính | `BookingOrderRepository.applyPromotionDiscount(...)` native update |
-| State bị overrun | `BOOKING_ORDER.DISCOUNT_AMOUNT`, `BOOKING_ORDER.TOTAL_AMOUNT`, `APPLIED_PROMOTION_CODES` |
-| Limit bị vượt | Một promotion đáng ra chỉ apply một lần trên một held order, nhưng request song song có thể stack nhiều lần |
-| Biến thể phụ | `Promotion.usageLimit` có thể bị overrun nếu nhiều confirm đọc cùng `usedCount` cũ rồi cùng increment |
-| Root cause | Check-then-update không lock `BookingOrder`, không có unique `(order,promotion)`, và update trừ dần từ `TOTAL_AMOUNT` hiện tại |
+| Thuộc tính             | Giá trị                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Entry tạo order        | `POST /api/v1/booking/hold`                                                                                                    |
+| Entry race chính       | `POST /api/v1/booking/apply-promotion`                                                                                         |
+| Entry hoàn tất booking | `POST /api/v1/booking/confirm`                                                                                                 |
+| Quyền truy cập         | `ROLE_USER` hoặc `ROLE_ADMIN`                                                                                                  |
+| Source chính           | JSON `orderId`, `promotionCode`                                                                                                |
+| Sink chính             | `BookingOrderRepository.applyPromotionDiscount(...)` native update                                                             |
+| State bị overrun       | `BOOKING_ORDER.DISCOUNT_AMOUNT`, `BOOKING_ORDER.TOTAL_AMOUNT`, `APPLIED_PROMOTION_CODES`                                       |
+| Limit bị vượt          | Một promotion đáng ra chỉ apply một lần trên một held order, nhưng request song song có thể stack nhiều lần                    |
+| Root cause             | Check-then-update không lock `BookingOrder`, không có unique `(order,promotion)`, và update trừ dần từ `TOTAL_AMOUNT` hiện tại |
 
-> **Nhận định:** Race Condition ở WebLab nằm đúng trong flow airline tự nhiên: user giữ chỗ bằng `/booking/hold`, sau đó apply mã giảm giá bằng `/booking/apply-promotion`, rồi confirm bằng `/booking/confirm`. Lỗi chính không phải seat oversell vì transaction hold đã dùng `PESSIMISTIC_WRITE`; lỗi chính là promotion/discount limit overrun trên một `BookingOrder` do nhiều request apply cùng mã chạy song song.
+> **Nhận định:** Race Condition ở WebLab nằm đúng trong flow đặt vé: user giữ chỗ bằng `/booking/hold`, sau đó apply mã giảm giá bằng `/booking/apply-promotion`, rồi confirm bằng `/booking/confirm`. Lỗi chính không phải seat oversell vì transaction hold đã dùng `PESSIMISTIC_WRITE`; lỗi chính là promotion/discount limit overrun trên một `BookingOrder` do nhiều request apply cùng mã chạy song song.
 
 ***
 
@@ -4562,18 +4561,17 @@ flowchart TD
 
 ### 3.1. Fuzz dangerous function để tìm sink candidate
 
-Hướng sink -> source bắt đầu từ các pattern race-prone: read-check-write, counter/limit update, native update cộng/trừ dần, lock annotation, unique constraint, và các state field dùng để chống duplicate.
+Hướng sink -> source bắt đầu từ các pattern có nguy cơ dính race condition: read-check-write, native update cộng/trừ dần, lock annotation, unique constraint, và các state field dùng để chống duplicate.
 
-| Nhóm dangerous function / signal | Pattern fuzz trong code | Candidate tìm thấy | Kết luận |
-|---|---|---|---|
-| Counter / limit update | `usedCount`, `usageLimit`, `>=`, `+ 1`, `save(promotion)` | `validatePromotion(...)`, `confirm(...)`, `confirmOrder(...)` | Có biến thể global usage-limit overrun |
-| Atomic-looking SQL update | `@Modifying`, `update`, `set`, `TOTAL_AMOUNT`, `DISCOUNT_AMOUNT` | `BookingOrderRepository.applyPromotionDiscount(...)` | Sink chính của promotion stacking |
-| Check-then-update | `hasAppliedPromotion`, `appendPromotionCode`, `appliedPromotionCodes` | `BookingServiceImpl.applyPromotion(...)` | Duplicate check không lock |
-| Locking audit | `@Lock`, `PESSIMISTIC_WRITE`, `ForUpdate` | Có ở `TransactionRepository.findByIdAndIsDeletedFalseForUpdate(...)`, thiếu ở `BookingOrderRepository.findById...` | Seat hold an toàn hơn, order promotion chưa an toàn |
-| Unique constraint audit | `@UniqueConstraint`, `(ORDER_ID, PROMOTION_ID)` | `BookingOrderPromotion` chỉ là comment fix, chưa là entity thật | Không có DB constraint chống apply trùng |
-| Source endpoint | `/hold`, `/apply-promotion`, `/confirm`, `orderId`, `promotionCode` | `BookingController.applyPromotion(...)` | Entry race là authenticated business endpoint |
+| Nhóm dangerous function / signal | Pattern fuzz trong code                                               | Candidate tìm thấy                                                                                                 | Kết luận                                            |
+| -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Atomic-looking SQL update        | `@Modifying`, `update`, `set`, `TOTAL_AMOUNT`, `DISCOUNT_AMOUNT`      | `BookingOrderRepository.applyPromotionDiscount(...)`                                                               | Sink chính của promotion stacking                   |
+| Check-then-update                | `hasAppliedPromotion`, `appendPromotionCode`, `appliedPromotionCodes` | `BookingServiceImpl.applyPromotion(...)`                                                                           | Duplicate check không lock                          |
+| Locking audit                    | `@Lock`, `PESSIMISTIC_WRITE`, `ForUpdate`                             | Có ở `TransactionRepository.findByIdAndIsDeletedFalseForUpdate(...)`, thiếu ở `BookingOrderRepository.findById...` | Seat hold an toàn hơn, order promotion chưa an toàn |
+| Unique constraint audit          | `@UniqueConstraint`, `(ORDER_ID, PROMOTION_ID)`                       | Không có                                                                                                           | Không có DB constraint chống apply trùng nhau       |
+| Source endpoint                  | `/hold`, `/apply-promotion`, `/confirm`, `orderId`, `promotionCode`   | `BookingController.applyPromotion(...)`                                                                            | Entry race là authenticated business endpoint       |
 
-### 3.2. Sink chính: native update trừ dần total
+### 3.2. Sink chính: native update trừ dần `total_amount`
 
 ```java
 // File: src/main/java/org/example/repository/BookingOrderRepository.java
@@ -4590,12 +4588,12 @@ public int applyPromotionDiscount(@Param("id") Integer id,
 
 Điểm nguy hiểm:
 
-| Dòng xử lý | Ý nghĩa race |
-|---|---|
-| `DISCOUNT_AMOUNT = DISCOUNT_AMOUNT + :discountAmount` | Mỗi request song song cộng thêm discount |
+| Dòng xử lý                                                   | Ý nghĩa race                                      |
+| ------------------------------------------------------------ | ------------------------------------------------- |
+| `DISCOUNT_AMOUNT = DISCOUNT_AMOUNT + :discountAmount`        | Mỗi request song song cộng thêm discount          |
 | `TOTAL_AMOUNT = greatest(TOTAL_AMOUNT - :discountAmount, 0)` | Mỗi request song song trừ tiếp từ persisted total |
-| `where ID = :id` | Không có điều kiện “promotion chưa applied” |
-| Không có unique row `(order,promotion)` | DB không có điểm fail-fast để reject duplicate |
+| `where ID = :id`                                             | Không có điều kiện “promotion chưa applied”       |
+| Không có unique row `(order,promotion)`                      | DB không có điểm phát hiện lỗi để tránh duplicate |
 
 ### 3.3. Check-then-update ở service
 
@@ -4627,7 +4625,7 @@ updatedOrder.setAppliedPromotionCodes(
 updatedOrder = bookingOrderRepository.save(updatedOrder);
 ```
 
-Window race:
+Race window:
 
 ```mermaid
 sequenceDiagram
@@ -4669,7 +4667,7 @@ Repository có pessimistic lock:
 public Transaction findByIdAndIsDeletedFalseForUpdate(@Param("id") Integer id);
 ```
 
-Vì vậy phần seat inventory đã có cơ chế lock tương đối rõ. Race Condition cần ghi nhận ở report này là **promotion limit/discount overrun**, nơi `BookingOrder` không được lock và promotion application không có relation unique.
+Vì vậy phần seat inventory đã có cơ chế lock tương đối rõ. Race Condition cần ghi nhận là **promotion limit/discount overrun**, nơi `BookingOrder` không được lock và promotion application không có relation unique.
 
 ### 3.5. Truy ngược về source `orderId` và `promotionCode`
 
@@ -4782,7 +4780,6 @@ Attack shape:
 4. Mỗi request đều chạy `applyPromotionDiscount(...)`.
 5. `DISCOUNT_AMOUNT` / `TOTAL_AMOUNT` phản ánh nhiều lần discount cho cùng một mã.
 
-Mermaid race:
 
 ```mermaid
 flowchart TD
@@ -4806,51 +4803,9 @@ flowchart TD
     E --> F
 ```
 
-### 4.3. Biến thể global `usageLimit` overrun
-
-`validatePromotion(...)` có check usage limit:
-
-```java
-// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
-if (promotion.getUsageLimit() != null
-        && promotion.getUsedCount() != null
-        && promotion.getUsedCount() >= promotion.getUsageLimit()) {
-    throw new IllegalArgumentException("Promotion usage limit reached");
-}
-```
-
-Nhưng increment `usedCount` nằm ở confirm, không lock `Promotion`:
-
-```java
-// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
-for (String promotionCode : parsePromotionCodes(order.getAppliedPromotionCodes())) {
-    Promotion promotion = promotionRepository.findByCodeAndIsDeletedFalse(promotionCode);
-    if (promotion != null) {
-        promotion.setUsedCount((promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) + 1);
-        promotionRepository.save(promotion);
-    }
-}
-```
-
-Nếu nhiều order khác nhau cùng dùng mã còn 1 slot:
-
-```mermaid
-sequenceDiagram
-    participant O1 as Order 1 confirm
-    participant O2 as Order 2 confirm
-    participant Promo as PROMOTION row
-
-    O1->>Promo: read usedCount=9, usageLimit=10
-    O2->>Promo: read usedCount=9, usageLimit=10
-    O1->>Promo: save usedCount=10
-    O2->>Promo: save usedCount=10 or overwrite
-```
-
-Kết quả business: nhiều booking cùng pass limit khi chỉ còn một slot promotion. Tùy isolation/write timing, DB có thể lost update hoặc count sai, nhưng quan trọng là **limit check không reserve slot atomically**.
-
 ***
 
-## 5. Khai thác / Detect
+## 5. Khai thác 
 
 ### 5.1. Điều kiện khai thác
 
@@ -4875,15 +4830,14 @@ Content-Type: application/json
 }
 ```
 
-Expected evidence:
+Kết quả mong đợi:
 
-| Evidence | Ý nghĩa |
-|---|---|
+| Kết quả                                                   | Ý nghĩa                  |
+| --------------------------------------------------------- | ------------------------ |
 | N response đều `PROMOTION_APPLIED` hoặc trả total đã giảm | N request vượt qua check |
-| `DISCOUNT_AMOUNT` lớn hơn discount một lần | Same promotion bị stack |
-| `TOTAL_AMOUNT` thấp hơn expected | Limit overrun thành công |
-| `APPLIED_PROMOTION_CODES` có duplicate hoặc không phản ánh đủ số lần trừ tiền | String snapshot không phải source of truth |
-| Confirm order ra `pricePerTicket` thấp bất thường | Impact user-visible |
+| `DISCOUNT_AMOUNT` lớn hơn discount một lần                | Promotion bị stack       |
+| `TOTAL_AMOUNT` thấp hơn kì vọng                           | Limit overrun thành công |
+| Confirm order ra `pricePerTicket` thấp bất thường         | Impact rõ ràng với user  |
 
 ***
 
@@ -4977,42 +4931,6 @@ order.setTotalAmount(order.getSubtotal().subtract(totalDiscount).max(BigDecimal.
 order.setAppliedPromotionCodes(appliedPromotions.stream()
         .map(Promotion::getCode)
         .collect(Collectors.joining(",")));
-```
-
-### 6.4. Fix global `usageLimit` bằng lock hoặc atomic reserve
-
-Lock promotion row khi reserve/increment usage:
-
-```java
-// File: src/main/java/org/example/repository/PromotionRepository.java
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-@Query("select p from Promotion p where p.code = :code and p.isDeleted = false")
-Promotion findByCodeAndIsDeletedFalseForUpdate(@Param("code") String code);
-```
-
-Hoặc dùng atomic update có điều kiện:
-
-```java
-// File: src/main/java/org/example/repository/PromotionRepository.java
-@Modifying(clearAutomatically = true, flushAutomatically = true)
-@Query("""
-        update Promotion p
-        set p.usedCount = coalesce(p.usedCount, 0) + 1
-        where p.id = :id
-          and p.isDeleted = false
-          and (p.usageLimit is null or coalesce(p.usedCount, 0) < p.usageLimit)
-        """)
-int reserveUsageSlot(@Param("id") Integer id);
-```
-
-Service phải fail nếu không reserve được slot:
-
-```java
-// File: src/main/java/org/example/serviceImpl/BookingServiceImpl.java
-int reserved = promotionRepository.reserveUsageSlot(promotion.getId());
-if (reserved != 1) {
-    throw new IllegalStateException("Promotion usage limit reached");
-}
 ```
 
 ***
