@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<java version="17" class="java.beans.XMLDecoder">
+  <object class="org.example.entity.Promotion">
+    <void property="code">
+      <string>SUMMER2026_XML</string>
+    </void>
+    <void property="title">
+      <string>Ưu đãi hè 2026</string>
+    </void>
+    <void property="description">
+      <string>Giảm 15% cho chuyến bay hạng phổ thông trong mùa hè 2026.</string>
+    </void>
+    <void property="departure">
+      <string>Hà Nội</string>
+    </void>
+    <void property="departureCode">
+      <string>HAN</string>
+    </void>
+    <void property="arrival">
+      <string>Thành phố Hồ Chí Minh</string>
+    </void>
+    <void property="arrivalCode">
+      <string>SGN</string>
+    </void>
+    <void property="seatType">
+      <object class="org.example.constant.SeatType" field="ECONOMY"/>
+    </void>
+    <void property="discountType">
+      <object class="org.example.constant.PromotionDiscountType" field="PERCENTAGE"/>
+    </void>
+    <void property="discountValue">
+      <object class="java.math.BigDecimal">
+        <string>15.00</string>
+      </object>
+    </void>
+    <void property="minimumOrderAmount">
+      <object class="java.math.BigDecimal">
+        <string>1000000.00</string>
+      </object>
+    </void>
+    <void property="maximumDiscountAmount">
+      <object class="java.math.BigDecimal">
+        <string>500000.00</string>
+      </object>
+    </void>
+    <void property="startDate">
+      <object class="java.sql.Date" method="valueOf">
+        <string>2026-07-10</string>
+      </object>
+    </void>
+    <void property="endDate">
+      <object class="java.sql.Date" method="valueOf">
+        <string>2026-12-31</string>
+      </object>
+    </void>
+    <void property="usageLimit">
+      <int>1000</int>
+    </void>
+    <void property="usedCount">
+      <int>0</int>
+    </void>
+    <void property="active">
+      <boolean>true</boolean>
+    </void>
+    <void property="pictureLink">
+      <string>https://images.unsplash.com/photo-1436491865332-7a61a109cc05</string>
+    </void>
+    <void property="terms">
+      <string>Áp dụng một lần cho mỗi đơn hàng; không quy đổi thành tiền mặt.</string>
+    </void>
+  </object>
+</java>
