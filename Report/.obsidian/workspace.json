@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "f6ee06cdca051654",
+        "id": "4509724f8bf84da7",
         "type": "tabs",
         "children": [
           {
-            "id": "1e93641bca95d51a",
+            "id": "e7a7b303c61786dc",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -71,7 +71,7 @@
             }
           },
           {
-            "id": "a557bedc8541a62e",
+            "id": "acd07b27ee738732",
             "type": "leaf",
             "state": {
               "type": "mk-path-view",
@@ -85,8 +85,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "e864ebcf523e551f",
@@ -212,12 +211,11 @@
       "bases:Create new base": false,
       "table-editor-obsidian:Advanced Tables Toolbar": false,
       "obsidian-git:Open Git source control": false,
-      "obsidian-excalidraw-plugin:New drawing": false,
       "copilot:Open Copilot Chat": false,
       "homepage:Open homepage": false
     }
   },
-  "active": "1e93641bca95d51a",
+  "active": "e7a7b303c61786dc",
   "lastOpenFiles": [
     "Weblab All Vulnerabilities.md",
     "Home.md",
