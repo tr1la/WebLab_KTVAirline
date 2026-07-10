@@ -20,7 +20,8 @@ snapshot() {
 }
 
 start_app() {
-  mvn -DskipTests -Dspring-boot.run.jvmArguments=-Dspring.devtools.restart.enabled=false spring-boot:run &
+  jvm_arguments="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dspring.devtools.restart.enabled=false"
+  mvn -DskipTests "-Dspring-boot.run.jvmArguments=${jvm_arguments}" spring-boot:run &
   app_pid=$!
 }
 

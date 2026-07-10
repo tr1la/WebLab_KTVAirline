@@ -50,6 +50,7 @@ services:
         condition: service_healthy
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_DEBUG_PORT:-5005}:5005"
     volumes:
       - ./pom.xml:/app/pom.xml
       - ./src:/app/src
