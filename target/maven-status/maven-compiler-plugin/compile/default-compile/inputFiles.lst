@@ -20,6 +20,7 @@
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/constant/SeatStatus.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/entity/BookingOrderPromotion.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/controller/TransactionController.java
+/Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/config/LegacyUploadWebResourceConfig.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/util/DynamicUIBuilder.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/repository/TransactionSearchRepository.java
 /Users/tr1la/Documents/WebLab_KTVAirline/src/main/java/org/example/serviceImpl/SeatServiceImpl.java

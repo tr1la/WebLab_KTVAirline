@@ -44,12 +44,13 @@ services:
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-1800000}
       JWT_ISSUER: ${JWT_ISSUER:-ktv-airline}
       JWT_KEY_ID: ${JWT_KEY_ID:-ktv-airline-rs256}
+      APP_PUBLIC_BACKEND_URL: ${APP_PUBLIC_BACKEND_URL:-http://localhost:8081}
       SPRING_DEVTOOLS_RESTART_ENABLED: "false"
     depends_on:
       mysql:
         condition: service_healthy
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_PORT:-8081}:8080"
       - "${BACKEND_DEBUG_PORT:-5005}:5005"
     volumes:
       - ./pom.xml:/app/pom.xml

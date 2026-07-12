@@ -349,8 +349,12 @@ Như vậy, với direct JSP impact, sink -> source không dừng ở `WebConfig
 **File:** `src/main/java/org/example/security/WebSecurityConfig.java`
 
 ```java
-.requestMatchers("/v3/**", "/swagger-ui/**", "/swagger-ui", "/swagger-ui.html").permitAll()
-.requestMatchers("/uploads/**").access(uploadOwnerAuthorizationManager)
+.requestMatchers(
+        antMatcher("/v3/**"),
+        antMatcher("/swagger-ui/**"),
+        antMatcher("/swagger-ui"),
+        antMatcher("/swagger-ui.html")).permitAll()
+.requestMatchers(antMatcher("/uploads/**")).access(uploadOwnerAuthorizationManager)
 ```
 
 **File:** `src/main/java/org/example/security/UploadOwnerAuthorizationManager.java`
@@ -660,12 +664,10 @@ Authorization: Bearer <JWT_OF_USER_1>
 
 Kỳ vọng quan sát:
 
-| Điều kiện | Kết quả |
-| --- | --- |
-| Upload thành công | `User.avatarUrl` lưu `/uploads/avatars/shell.JSP` |
-| Gọi URL không có JWT | Bị chặn bởi `/uploads/**` owner rule |
-| Gọi URL bằng JWT của owner hoặc admin | Request qua owner rule rồi tới Jasper |
-| JSP được execute | Response có chuỗi `weblab-jsp-ok:<java-version>` |
+| Điều kiện                             | Kết quả                                           |
+| ------------------------------------- | ------------------------------------------------- |
+| Upload thành công                     | `User.avatarUrl` lưu `/uploads/avatars/shell.JSP` |
+| JSP được execute                      | Response có chuỗi `weblab-jsp-ok:<java-version>`  |
 
 ### 6.2. Chained impact: traversal sang XMLDecoder import directory
 

@@ -51,7 +51,7 @@ docker compose -f docker-compose.dev.yml up
 ```
 
 - Frontend chạy Vite dev server tại `http://localhost:3000` và tự hot reload khi sửa file trong `frontend/src`.
-- Backend chạy Maven trong container tại `http://localhost:8080`; khi sửa Java/resources, container tự compile lại và Spring Boot DevTools restart app.
+- Backend chạy Maven trong container tại `http://localhost:8081`; khi sửa Java/resources, container tự compile lại và Spring Boot DevTools restart app.
 - MySQL chạy trong container, publish ra `localhost:3307`.
 
 ### Cấu Hình Gửi Email
@@ -107,7 +107,7 @@ MAIL_USERNAME=lampestdoo@gmail.com MAIL_PASSWORD='app-password-cua-ban' mvn spri
 ## Tài Liệu API
 Tài liệu API được cung cấp thông qua giao diện Swagger UI tại địa chỉ:
 ```
-http://localhost:8080/swagger-ui
+http://localhost:8081/swagger-ui
 ```
 
 ## Kiểm Thử
