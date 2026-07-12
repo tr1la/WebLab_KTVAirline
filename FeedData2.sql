@@ -596,3 +596,10 @@ VALUES
  'PERCENTAGE', 8.00, 1000000.00, 300000.00,
  '2026-03-01', '2026-04-15', 100, 100, 0, 'promotion-expired.jpg',
  'Mã đã hết hạn, chỉ dùng để kiểm thử bộ lọc active.');
+
+-- Đồng bộ Hibernate sequence sau khi insert promotion bằng ID thủ công.
+UPDATE `promotion_seq`
+SET next_val = GREATEST(
+  next_val,
+  (SELECT COALESCE(MAX(ID), 0) + 1 FROM `promotion`)
+);
