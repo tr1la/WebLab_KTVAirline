@@ -2,6 +2,7 @@ package org.example.config;
 
 import org.apache.catalina.Context;
 import org.apache.catalina.WebResourceRoot;
+import org.apache.catalina.Wrapper;
 import org.apache.catalina.webresources.DirResourceSet;
 import org.apache.catalina.webresources.StandardRoot;
 import org.apache.jasper.servlet.JspServlet;
@@ -9,7 +10,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
-import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,6 +23,8 @@ import java.nio.file.Paths;
         havingValue = "true",
         matchIfMissing = true)
 public class LegacyUploadWebResourceConfig {
+    private static final String LEGACY_JSP_SERVLET_NAME = "legacyJspServlet";
+
     @Value("${app.upload-dir:uploads}")
     private String uploadDir;
 
@@ -48,17 +50,21 @@ public class LegacyUploadWebResourceConfig {
                 normalizeContextPath(uploadWebPath),
                 uploadPath.toString(),
                 "/"));
+        addLegacyUppercaseJspMapping(context);
     }
 
-    @Bean
-    public ServletRegistrationBean<JspServlet> legacyJspServlet() {
-        ServletRegistrationBean<JspServlet> registration =
-                new ServletRegistrationBean<>(new JspServlet(), "*.jsp", "*.JSP");
-        registration.setName("legacyJspServlet");
-        registration.setLoadOnStartup(3);
-        registration.addInitParameter("fork", "false");
-        registration.addInitParameter("xpoweredBy", "false");
-        return registration;
+    private void addLegacyUppercaseJspMapping(Context context) {
+        if (context.findChild(LEGACY_JSP_SERVLET_NAME) == null) {
+            Wrapper jspServlet = context.createWrapper();
+            jspServlet.setName(LEGACY_JSP_SERVLET_NAME);
+            jspServlet.setServletClass(JspServlet.class.getName());
+            jspServlet.setLoadOnStartup(3);
+            jspServlet.addInitParameter("fork", "false");
+            jspServlet.addInitParameter("xpoweredBy", "false");
+            context.addChild(jspServlet);
+        }
+
+        context.addServletMappingDecoded("*.JSP", LEGACY_JSP_SERVLET_NAME);
     }
 
     private String normalizeContextPath(String path) {
