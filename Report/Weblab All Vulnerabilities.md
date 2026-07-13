@@ -21,7 +21,7 @@ header-includes:
 | Lỗi path traversal     | Dùng regex yếu để chặn `../`, sau đó `avatarDir.resolve(filename)` mà không `normalize()` + `startsWith(avatarDir)` trước khi ghi file |
 | Legacy webroot/JSP     | `LegacyUploadWebResourceConfig` mount `app.upload-dir` vào Tomcat web resource root và đăng ký Jasper cho `*.jsp`, `*.JSP`             |
 | Impact độc lập         | Upload avatar `.JSP` vào `/uploads/avatars/...` có thể được Jasper compile/execute sau khi owner rule cho phép request                 |
-| Impact chained         | Path traversal có thể ghi file `.XML` sang `imports/promotions` để kích hoạt chain XXE/XMLDecoder                                     |
+| Impact chained         | Path traversal có thể ghi file `.XML` sang `imports/promotions` để kích hoạt chain XXE/XMLDecoder                                      |
 
 > **Nhận định:** đây là vulnerable flow hoàn chỉnh: attacker điều khiển filename/file content, backend dùng filename đó để build path ghi file, blacklist không đủ mạnh, traversal filter có bypass. Impact hiện tại có hai nhánh: `.JSP` được execute trực tiếp qua legacy Jasper mapping trong `/uploads/avatars`, hoặc traversal ghi `.XML` sang import directory để chain sang XMLDecoder.
 

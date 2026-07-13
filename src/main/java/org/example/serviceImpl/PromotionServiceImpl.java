@@ -140,14 +140,13 @@ public class PromotionServiceImpl implements PromotionService {
          */
         file.transferTo(uploadingFile.toFile());
         Files.move(uploadingFile, destination, StandardCopyOption.REPLACE_EXISTING);
-
+        importPromotionXmlFiles();
         return Map.of(
                 "status", "QUEUED",
                 "fileName", safeFilename,
                 "path", destination.toString());
     }
 
-    @Scheduled(initialDelayString = "${app.promotion-import-initial-delay-ms:3000}", fixedDelayString = "${app.promotion-import-fixed-delay-ms:6000}")
     public void importPromotionXmlFiles() {
         Path promotionDir = Paths.get(importDir).toAbsolutePath().normalize();
 
@@ -168,92 +167,69 @@ public class PromotionServiceImpl implements PromotionService {
     }
 
     private void importPromotionXml(Path xmlFile) {
-        /*
-         * XXE/XMLDecoder fix:
-         * Do not parse uploaded or attacker-writable XML with java.beans.XMLDecoder.
-         * XMLDecoder is a Java object deserialization mechanism: readObject() can
-         * instantiate objects and invoke methods before the later instanceof
-         * Promotion check runs.
-         *
-         * FIXED CODE:
-         *
-         * boolean useSafePromotionXmlParser = true;
-         * if (useSafePromotionXmlParser) {
-         * try {
-         * Promotion promotion = parsePromotionXmlSafely(xmlFile);
-         * Promotion savedPromotion = importPromotion(promotion);
-         * logger.info("Imported promotion XML {} as promotion {}",
-         * xmlFile.getFileName(), savedPromotion.getCode());
-         * moveToProcessed(xmlFile);
-         * } catch (Exception e) {
-         * logger.warn("Failed to import promotion XML {}", xmlFile.getFileName(), e);
-         * }
-         * return;
-         * }
-         */
-        try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(Files.newInputStream(xmlFile)))) {
-            Object decodedObject = decoder.readObject();
-            if (decodedObject instanceof Promotion promotion) {
+
+        boolean useSafePromotionXmlParser = true;
+        if (useSafePromotionXmlParser) {
+            try {
+                Promotion promotion = parsePromotionXmlSafely(xmlFile);
                 Promotion savedPromotion = importPromotion(promotion);
-                logger.info("Imported promotion XML {} as promotion {}", xmlFile.getFileName(),
-                        savedPromotion.getCode());
-            } else {
-                logger.info("Imported promotion XML {} as {}", xmlFile.getFileName(), decodedObject);
+                logger.info("Imported promotion XML {} as promotion {}",
+                        xmlFile.getFileName(), savedPromotion.getCode());
+                moveToProcessed(xmlFile);
+            } catch (Exception e) {
+                logger.warn("Failed to import promotion XML {}", xmlFile.getFileName(), e);
             }
-            moveToProcessed(xmlFile);
-        } catch (Exception e) {
-            logger.warn("Failed to import promotion XML {}", xmlFile.getFileName(), e);
+            return;
         }
+
     }
 
-    /*
-     * private Promotion parsePromotionXmlSafely(Path xmlFile) throws Exception {
-     * DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-     * factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-     * factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",
-     * true);
-     * factory.setFeature("http://xml.org/sax/features/external-general-entities",
-     * false);
-     * factory.setFeature("http://xml.org/sax/features/external-parameter-entities",
-     * false);
-     * factory.setFeature(
-     * "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-     * factory.setXIncludeAware(false);
-     * factory.setExpandEntityReferences(false);
-     * factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-     * factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-     *
-     * Document document = factory.newDocumentBuilder().parse(xmlFile.toFile());
-     * Element root = document.getDocumentElement();
-     * if (root == null || !"promotion".equals(root.getTagName())) {
-     * throw new IllegalArgumentException("Invalid promotion XML root");
-     * }
-     *
-     * Promotion promotion = new Promotion();
-     * promotion.setCode(requiredText(root, "code"));
-     * promotion.setTitle(requiredText(root, "title"));
-     * promotion.setDescription(optionalText(root, "description"));
-     * promotion.setDeparture(optionalText(root, "departure"));
-     * promotion.setDepartureCode(optionalText(root, "departureCode"));
-     * promotion.setArrival(optionalText(root, "arrival"));
-     * promotion.setArrivalCode(optionalText(root, "arrivalCode"));
-     * promotion.setSeatType(optionalSeatType(root, "seatType"));
-     * promotion.setDiscountType(optionalDiscountType(root, "discountType"));
-     * promotion.setDiscountValue(optionalBigDecimal(root, "discountValue"));
-     * promotion.setMinimumOrderAmount(optionalBigDecimal(root,
-     * "minimumOrderAmount"));
-     * promotion.setMaximumDiscountAmount(optionalBigDecimal(root,
-     * "maximumDiscountAmount"));
-     * promotion.setStartDate(requiredSqlDate(root, "startDate"));
-     * promotion.setEndDate(requiredSqlDate(root, "endDate"));
-     * promotion.setUsageLimit(optionalInteger(root, "usageLimit"));
-     * promotion.setUsedCount(optionalInteger(root, "usedCount"));
-     * promotion.setActive(optionalBoolean(root, "active"));
-     * promotion.setPictureLink(optionalText(root, "pictureLink"));
-     * promotion.setTerms(optionalText(root, "terms"));
-     * return promotion;
-     * }
-     */
+    private Promotion parsePromotionXmlSafely(Path xmlFile) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",
+                true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities",
+                false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities",
+                false);
+        factory.setFeature(
+                "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+
+        Document document = factory.newDocumentBuilder().parse(xmlFile.toFile());
+        Element root = document.getDocumentElement();
+        if (root == null || !"promotion".equals(root.getTagName())) {
+            throw new IllegalArgumentException("Invalid promotion XML root");
+        }
+
+        Promotion promotion = new Promotion();
+        promotion.setCode(requiredText(root, "code"));
+        promotion.setTitle(requiredText(root, "title"));
+        promotion.setDescription(optionalText(root, "description"));
+        promotion.setDeparture(optionalText(root, "departure"));
+        promotion.setDepartureCode(optionalText(root, "departureCode"));
+        promotion.setArrival(optionalText(root, "arrival"));
+        promotion.setArrivalCode(optionalText(root, "arrivalCode"));
+        promotion.setSeatType(optionalSeatType(root, "seatType"));
+        promotion.setDiscountType(optionalDiscountType(root, "discountType"));
+        promotion.setDiscountValue(optionalBigDecimal(root, "discountValue"));
+        promotion.setMinimumOrderAmount(optionalBigDecimal(root,
+                "minimumOrderAmount"));
+        promotion.setMaximumDiscountAmount(optionalBigDecimal(root,
+                "maximumDiscountAmount"));
+        promotion.setStartDate(requiredSqlDate(root, "startDate"));
+        promotion.setEndDate(requiredSqlDate(root, "endDate"));
+        promotion.setUsageLimit(optionalInteger(root, "usageLimit"));
+        promotion.setUsedCount(optionalInteger(root, "usedCount"));
+        promotion.setActive(optionalBoolean(root, "active"));
+        promotion.setPictureLink(optionalText(root, "pictureLink"));
+        promotion.setTerms(optionalText(root, "terms"));
+        return promotion;
+    }
 
     private String requiredText(Element root, String tagName) {
         String value = optionalText(root, tagName);

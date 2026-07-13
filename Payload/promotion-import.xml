@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<java version="17" class="java.beans.XMLDecoder">
   <object class="org.example.entity.Promotion">
     <void property="code">
-      <string>SUMMER2026_XML</string>
+      <string>SUMMER2028</string>
     </void>
     <void property="title">
       <string>Ưu đãi hè 2026</string>
@@ -58,9 +57,6 @@
     </void>
     <void property="usedCount">
       <int>0</int>
-    </void>
-    <void property="active">
-      <boolean>true</boolean>
     </void>
     <void property="pictureLink">
       <string>https://images.unsplash.com/photo-1436491865332-7a61a109cc05</string>
