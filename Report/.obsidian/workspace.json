@@ -84,13 +84,11 @@
               "title": "Navigator"
             }
           }
-        ],
-        "currentTab": 3
+        ]
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "e864ebcf523e551f",
@@ -222,6 +220,9 @@
   "active": "e7a7b303c61786dc",
   "lastOpenFiles": [
     "Weblab All Vulnerabilities.md",
+    "Untitled",
+    "new/new.md",
+    "new",
     "Home.md",
     "Weblab All Vulnerabilities.html",
     "Excalidraw/Drawing 2026-07-06 09.21.26.excalidraw.md",
