@@ -51,22 +51,20 @@ public class QRCodeHelper implements TemplateMethodModelEx {
              *
              * FIXED CODE:
              *
-             * ProcessBuilder processBuilder = new ProcessBuilder(
-             * "qrencode",
-             * "-t", "SVG",
-             * "-o", outputPath.toString(),
-             * resolvedContent);
-             * processBuilder.redirectErrorStream(true);
-             * Process process = processBuilder.start();
-             *
-             * Add input policy before spawning the process:
              * if (resolvedContent.length() > 256) {
-             * throw new IllegalArgumentException("QR content is too long");
+             *     throw new IllegalArgumentException("QR content is too long");
              * }
              * if (!resolvedContent.matches("^[A-Za-z0-9@._,+: -]+$")) {
-             * throw new
-             * IllegalArgumentException("QR content contains unsupported characters");
+             *     throw new IllegalArgumentException("QR content contains unsupported characters");
              * }
+             *
+             * ProcessBuilder processBuilder = new ProcessBuilder(
+             *         "qrencode",
+             *         "-t", "SVG",
+             *         "-o", outputPath.toString(),
+             *         resolvedContent);
+             * processBuilder.redirectErrorStream(true);
+             * Process process = processBuilder.start();
              */
 
             if (!process.waitFor(3, TimeUnit.SECONDS)) {

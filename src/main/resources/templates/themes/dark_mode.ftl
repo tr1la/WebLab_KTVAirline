@@ -1,3 +1,14 @@
+<#--
+SINK: the live lab template instantiates QRCodeHelper with ?new(), so disabling
+?new() in the Freemarker sandbox would break QR rendering unless the URL is
+prepared before template rendering.
+
+FIXED TEMPLATE:
+
+Remove the two assignments below and keep the existing <img> tag that reads
+${memberQrUrl?html}. ProfileViewController should put a precomputed static QR
+URL into model.memberQrUrl.
+-->
 <#assign memberQr = "org.example.util.QRCodeHelper"?new()>
 <#assign memberQrUrl = memberQr(email)>
 <div class="overflow-hidden rounded-xl border border-slate-700 bg-slate-800 shadow-sm">

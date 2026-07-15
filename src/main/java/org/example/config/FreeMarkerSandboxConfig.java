@@ -23,9 +23,9 @@ public class FreeMarkerSandboxConfig {
          *
          * configuration.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
          *
-         * // If templates need helpers, expose audited instances explicitly:
-         * // configuration.setSharedVariable("qrHelper", new SafeQRCodeHelper());
-         * // and call ${qrHelper(email)} instead of allowing arbitrary ?new().
+         * // If templates need QR output, generate memberQrUrl in ProfileViewController
+         * // and let the Freemarker theme render only ${memberQrUrl?html}; do not
+         * // re-enable class-name based ?new().
          */
         configuration.setAPIBuiltinEnabled(false);
         configuration.setObjectWrapper(new DefaultObjectWrapper(Configuration.VERSION_2_3_29));
@@ -38,7 +38,8 @@ public class FreeMarkerSandboxConfig {
          *
          * FIXED CODE:
          *
-         * configuration.setObjectWrapper(new SimpleObjectWrapper(Configuration.VERSION_2_3_29));
+         * configuration.setObjectWrapper(
+         *         new freemarker.template.SimpleObjectWrapper(Configuration.VERSION_2_3_29));
          *
          * // For real custom helpers, expose small audited TemplateMethodModelEx
          * // instances instead of generic Java object/method access.

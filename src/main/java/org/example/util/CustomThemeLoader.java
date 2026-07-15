@@ -72,12 +72,11 @@ public class CustomThemeLoader {
          *
          * FIXED CODE:
          *
-         * private static final Map<String, String> THEME_ALLOWLIST = Map.of(
-         * "light_mode", "themes/light_mode.ftl",
-         * "dark_mode", "themes/dark_mode.ftl");
+         * java.util.Map<String, String> themeAllowlist = java.util.Map.of(
+         *         "light_mode.ftl", "themes/light_mode.ftl",
+         *         "dark_mode.ftl", "themes/dark_mode.ftl");
          *
-         * String templatePath = THEME_ALLOWLIST.getOrDefault(themeName,
-         * "themes/light_mode.ftl");
+         * String templatePath = themeAllowlist.getOrDefault(themeName, "themes/light_mode.ftl");
          * Template template = configuration.getTemplate(templatePath);
          */
         StringWriter writer = new StringWriter();
@@ -98,10 +97,14 @@ public class CustomThemeLoader {
              * Path root = customThemeRoot.toRealPath();
              * Path candidate = root.resolve(themeName).normalize();
              * if (!candidate.startsWith(root)
-             * || !candidate.getFileName().toString().endsWith(".ftl")) {
-             * throw new IllegalArgumentException("Invalid theme path");
+             *         || candidate.getFileName() == null
+             *         || !candidate.getFileName().toString().endsWith(".ftl")) {
+             *     throw new IllegalArgumentException("Invalid theme path");
              * }
-             * Path resolvedThemePath = candidate;
+             * Path resolvedThemePath = candidate.toRealPath();
+             * if (!resolvedThemePath.startsWith(root)) {
+             *     throw new IllegalArgumentException("Invalid theme path");
+             * }
              */
             String templateSource = Files.readString(resolvedThemePath, StandardCharsets.UTF_8);
             /*
@@ -131,15 +134,8 @@ public class CustomThemeLoader {
          *
          * FIXED CODE:
          *
-         * // Do not compile arbitrary filesystem content as Freemarker. Either load
-         * // only allowlisted classpath templates, or treat custom file content as
-         * data:
-         * return "<pre>" + escapeHtml(templateSource) + "</pre>";
-         *
-         * // If custom templates are a real product feature, store trusted template
-         * // records server-side, review them before activation, and render with
-         * // configuration.setNewBuiltinClassResolver(
-         * // TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
+         * String safeTemplateSource = escapeHtml(templateSource);
+         * return "<pre>" + safeTemplateSource + "</pre>";
          */
         StringWriter writer = new StringWriter();
         template.process(model, writer);

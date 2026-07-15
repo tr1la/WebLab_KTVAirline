@@ -46,16 +46,10 @@ public class ProfileViewController {
          *
          * FIXED CODE:
          *
-         * String themeName = resolveAllowedThemeName(user);
+         * String requestedTheme = user == null ? null : user.getProfileTheme();
+         * String requestedThemeName = requestedTheme == null ? "" : requestedTheme.trim();
+         * String themeName = "dark_mode.ftl".equals(requestedThemeName) ? "dark_mode.ftl" : DEFAULT_THEME;
          * return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
-         *
-         * private String resolveAllowedThemeName(User user) {
-         *     String theme = user == null ? null : user.getProfileTheme();
-         *     if ("dark_mode.ftl".equals(theme)) {
-         *         return "dark_mode.ftl";
-         *     }
-         *     return DEFAULT_THEME;
-         * }
          */
         return customThemeLoader.loadProfileTheme(themeName, buildProfileModel(user));
     }
@@ -89,7 +83,20 @@ public class ProfileViewController {
          *
          * FIXED CODE:
          *
-         * model.put("profileTheme", resolveThemeName(user));
+         * String profileEmail = valueOrDefault(user.getEmail());
+         * String selectedTheme = user == null || user.getProfileTheme() == null
+         *         ? DEFAULT_THEME
+         *         : user.getProfileTheme().trim();
+         *
+         * model.put("name", valueOrDefault(user.getName()));
+         * model.put("email", profileEmail);
+         * model.put("idNumber", valueOrDefault(user.getIdNumber()));
+         * model.put("birthday", formatDate(user.getBirthday()));
+         * model.put("phoneNum", valueOrDefault(user.getPhoneNum()));
+         * model.put("gender", formatGender(user.getGender()));
+         * model.put("address", valueOrDefault(user.getAddress()));
+         * model.put("profileTheme", "dark_mode.ftl".equals(selectedTheme) ? "dark_mode.ftl" : DEFAULT_THEME);
+         * model.put("memberQrUrl", new org.example.util.QRCodeHelper().renderQrCode(profileEmail));
          */
         model.put("name", valueOrDefault(user.getName()));
         model.put("email", valueOrDefault(user.getEmail()));

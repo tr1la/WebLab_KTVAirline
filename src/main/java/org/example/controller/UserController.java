@@ -123,14 +123,16 @@ public class UserController {
                  *
                  * FIXED CODE:
                  *
-                 * private static final Set<String> ALLOWED_PROFILE_THEMES =
-                 *         Set.of("light_mode.ftl", "dark_mode.ftl");
+                 * java.util.Set<String> allowedProfileThemes = java.util.Set.of(
+                 *         "light_mode.ftl", "dark_mode.ftl");
                  *
                  * String requestedTheme = user.getProfileTheme();
-                 * if (!StringUtils.hasText(requestedTheme)) {
+                 * if (!org.springframework.util.StringUtils.hasText(requestedTheme)) {
                  *     user.setProfileTheme(existingUser.getProfileTheme());
-                 * } else if (!ALLOWED_PROFILE_THEMES.contains(requestedTheme)) {
+                 * } else if (!allowedProfileThemes.contains(requestedTheme.trim())) {
                  *     return ResponseEntity.badRequest().body("Invalid profile theme");
+                 * } else {
+                 *     user.setProfileTheme(requestedTheme.trim());
                  * }
                  */
                 userService.save(user);
