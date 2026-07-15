@@ -1,10 +1,5 @@
 package org.example.util;
 
-import freemarker.template.TemplateMethodModelEx;
-import freemarker.template.TemplateModel;
-import freemarker.template.TemplateModelException;
-import freemarker.template.TemplateScalarModel;
-
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +8,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+
+import freemarker.template.TemplateMethodModelEx;
+import freemarker.template.TemplateModel;
+import freemarker.template.TemplateModelException;
+import freemarker.template.TemplateScalarModel;
 
 /*
  * Freemarker profile themes instantiate this helper with ?new() and call it as
@@ -43,8 +43,8 @@ public class QRCodeHelper implements TemplateMethodModelEx {
         try {
             Files.createDirectories(outputDir);
 
+            ProcessBuilder safeQrCommand = null;
             String command = "qrencode -t SVG -o " + outputPath + " " + resolvedContent;
-            Process process = Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command });
             /*
              * SINK: command is built with string concatenation and executed through
              * /bin/sh -c, so qrContent can inject shell metacharacters.
@@ -52,21 +52,30 @@ public class QRCodeHelper implements TemplateMethodModelEx {
              * FIXED CODE:
              *
              * if (resolvedContent.length() > 256) {
-             *     throw new IllegalArgumentException("QR content is too long");
+             * throw new IllegalArgumentException("QR content is too long");
              * }
              * if (!resolvedContent.matches("^[A-Za-z0-9@._,+: -]+$")) {
-             *     throw new IllegalArgumentException("QR content contains unsupported characters");
+             * throw new
+             * IllegalArgumentException("QR content contains unsupported characters");
              * }
              *
              * ProcessBuilder processBuilder = new ProcessBuilder(
-             *         "qrencode",
-             *         "-t", "SVG",
-             *         "-o", outputPath.toString(),
-             *         resolvedContent);
+             * "qrencode",
+             * "-t", "SVG",
+             * "-o", outputPath.toString(),
+             * resolvedContent);
              * processBuilder.redirectErrorStream(true);
-             * Process process = processBuilder.start();
+             * safeQrCommand = processBuilder;
              */
-
+            Process process = safeQrCommand == null
+                    ? Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command })
+                    : safeQrCommand.start();
+            /*
+             * if (!safeQrCommand.waitFor(3, TimeUnit.SECONDS)) {
+             * process.destroyForcibly();
+             * throw new IllegalStateException("QR generation timed out");
+             * }
+             */
             if (!process.waitFor(3, TimeUnit.SECONDS)) {
                 return QR_URL_PREFIX + filename;
             }

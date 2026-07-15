@@ -3402,7 +3402,7 @@ model.put("email", profileEmail);
 model.put("memberQrUrl", new org.example.util.QRCodeHelper().renderQrCode(profileEmail));
 ```
 
-```ftl
+```java
 <#-- File: src/main/resources/templates/themes/light_mode.ftl và dark_mode.ftl -->
 <#-- Bỏ:
 <#assign memberQr = 'org.example.util.QRCodeHelper'?new()>

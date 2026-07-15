@@ -1,26 +1,5 @@
 package org.example.serviceImpl;
 
-import org.example.constant.PromotionDiscountType;
-import org.example.constant.BookingOrderStatus;
-import org.example.constant.SeatType;
-import org.example.constant.TransactionStatusEnum;
-import org.example.entity.BookingOrder;
-import org.example.entity.Flight;
-import org.example.entity.Promotion;
-import org.example.entity.Transaction;
-import org.example.entity.User;
-import org.example.payload.BookingRequest;
-import org.example.payload.BookingResponse;
-import org.example.repository.BookingOrderRepository;
-import org.example.repository.PromotionRepository;
-import org.example.repository.TransactionRepository;
-import org.example.repository.UserRepository;
-import org.example.service.BookingService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.ObjectUtils;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,6 +19,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.example.constant.BookingOrderStatus;
+import org.example.constant.PromotionDiscountType;
+import org.example.constant.SeatType;
+import org.example.constant.TransactionStatusEnum;
+import org.example.entity.BookingOrder;
+import org.example.entity.Flight;
+import org.example.entity.Promotion;
+import org.example.entity.Transaction;
+import org.example.entity.User;
+import org.example.payload.BookingRequest;
+import org.example.payload.BookingResponse;
+import org.example.repository.BookingOrderRepository;
+import org.example.repository.PromotionRepository;
+import org.example.repository.TransactionRepository;
+import org.example.repository.UserRepository;
+import org.example.service.BookingService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.ObjectUtils;
 
 @Service
 public class BookingServiceImpl implements BookingService {
@@ -148,61 +148,67 @@ public class BookingServiceImpl implements BookingService {
          * BookingOrderPromotionRepository bookingOrderPromotionRepository;
          *
          * @Transactional
-         * public BookingResponse applyPromotion(BookingRequest request, Integer userId) {
-         *     if (request == null || request.getOrderId() == null) {
-         *         throw new IllegalArgumentException("orderId is required");
-         *     }
+         * public BookingResponse applyPromotion(BookingRequest request, Integer userId)
+         * {
+         * if (request == null || request.getOrderId() == null) {
+         * throw new IllegalArgumentException("orderId is required");
+         * }
          *
-         *     BookingOrder order = bookingOrderRepository
-         *             .findByIdAndIsDeletedFalseForUpdate(request.getOrderId());
-         *     if (order == null) {
-         *         throw new IllegalArgumentException("Booking order not found: " + request.getOrderId());
-         *     }
-         *     if (order.getUser() == null || !order.getUser().getId().equals(userId)) {
-         *         throw new IllegalStateException("Booking order does not belong to current user");
-         *     }
-         *     validateActiveOrder(order);
+         * BookingOrder order = bookingOrderRepository
+         * .findByIdAndIsDeletedFalseForUpdate(request.getOrderId());
+         * if (order == null) {
+         * throw new IllegalArgumentException("Booking order not found: " +
+         * request.getOrderId());
+         * }
+         * if (order.getUser() == null || !order.getUser().getId().equals(userId)) {
+         * throw new
+         * IllegalStateException("Booking order does not belong to current user");
+         * }
+         * validateActiveOrder(order);
          *
-         *     List<Transaction> transactions = resolveOrderTransactions(order);
-         *     Promotion promotion = resolvePromotion(request);
-         *     if (promotion == null) {
-         *         throw new IllegalArgumentException("promotionCode is required");
-         *     }
-         *     validatePromotion(promotion, transactions, order.getSubtotal());
+         * List<Transaction> transactions = resolveOrderTransactions(order);
+         * Promotion promotion = resolvePromotion(request);
+         * if (promotion == null) {
+         * throw new IllegalArgumentException("promotionCode is required");
+         * }
+         * validatePromotion(promotion, transactions, order.getSubtotal());
          *
-         *     if (bookingOrderPromotionRepository.existsByOrderIdAndPromotionId(
-         *             order.getId(), promotion.getId())) {
-         *         return buildOrderResponse(order, transactions, "PROMOTION_APPLIED");
-         *     }
+         * if (bookingOrderPromotionRepository.existsByOrderIdAndPromotionId(
+         * order.getId(), promotion.getId())) {
+         * return buildOrderResponse(order, transactions, "PROMOTION_APPLIED");
+         * }
          *
-         *     BookingOrderPromotion appliedPromotion = new BookingOrderPromotion();
-         *     appliedPromotion.setOrder(order);
-         *     appliedPromotion.setPromotion(promotion);
-         *     bookingOrderPromotionRepository.saveAndFlush(appliedPromotion);
+         * BookingOrderPromotion appliedPromotion = new BookingOrderPromotion();
+         * appliedPromotion.setOrder(order);
+         * appliedPromotion.setPromotion(promotion);
+         * bookingOrderPromotionRepository.saveAndFlush(appliedPromotion);
          *
-         *     List<Promotion> appliedPromotions = bookingOrderPromotionRepository
-         *             .findByOrderIdAndIsDeletedFalse(order.getId())
-         *             .stream()
-         *             .map(BookingOrderPromotion::getPromotion)
-         *             .toList();
+         * List<Promotion> appliedPromotions = bookingOrderPromotionRepository
+         * .findByOrderIdAndIsDeletedFalse(order.getId())
+         * .stream()
+         * .map(BookingOrderPromotion::getPromotion)
+         * .toList();
          *
-         *     BigDecimal discountAmount = appliedPromotions.stream()
-         *             .map(applied -> calculateDiscountAmount(applied, order.getSubtotal()))
-         *             .reduce(BigDecimal.ZERO, BigDecimal::add)
-         *             .min(order.getSubtotal());
+         * BigDecimal discountAmount = appliedPromotions.stream()
+         * .map(applied -> calculateDiscountAmount(applied, order.getSubtotal()))
+         * .reduce(BigDecimal.ZERO, BigDecimal::add)
+         * .min(order.getSubtotal());
          *
-         *     order.setDiscountAmount(discountAmount);
-         *     order.setTotalAmount(order.getSubtotal().subtract(discountAmount).max(BigDecimal.ZERO));
-         *     order.setAppliedPromotionCodes(appliedPromotions.stream()
-         *             .map(Promotion::getCode)
-         *             .collect(Collectors.joining(",")));
+         * order.setDiscountAmount(discountAmount);
+         * order.setTotalAmount(order.getSubtotal().subtract(discountAmount).max(
+         * BigDecimal.ZERO));
+         * order.setAppliedPromotionCodes(appliedPromotions.stream()
+         * .map(Promotion::getCode)
+         * .collect(Collectors.joining(",")));
          *
-         *     return buildOrderResponse(bookingOrderRepository.save(order), transactions, "PROMOTION_APPLIED");
+         * return buildOrderResponse(bookingOrderRepository.save(order), transactions,
+         * "PROMOTION_APPLIED");
          * }
          */
 
         BookingOrder updatedOrder = bookingOrderRepository.findByIdAndIsDeletedFalse(order.getId());
-        updatedOrder.setAppliedPromotionCodes(appendPromotionCode(updatedOrder.getAppliedPromotionCodes(), promotionCode));
+        updatedOrder
+                .setAppliedPromotionCodes(appendPromotionCode(updatedOrder.getAppliedPromotionCodes(), promotionCode));
         updatedOrder = bookingOrderRepository.save(updatedOrder);
 
         return buildOrderResponse(updatedOrder, transactions, "PROMOTION_APPLIED");
@@ -254,7 +260,8 @@ public class BookingServiceImpl implements BookingService {
         orderRequest.setOrderId(order.getId());
         orderRequest.setTransactionIds(parseOrderTransactionIds(order));
 
-        List<Transaction> transactions = resolveBookingTransactions(orderRequest, user.getId(), SeatResolutionMode.CONFIRM);
+        List<Transaction> transactions = resolveBookingTransactions(orderRequest, user.getId(),
+                SeatResolutionMode.CONFIRM);
         BigDecimal pricePerTicket = order.getTotalAmount().divide(
                 BigDecimal.valueOf(transactions.size()),
                 0,
@@ -301,6 +308,21 @@ public class BookingServiceImpl implements BookingService {
             throw new IllegalStateException("Booking draft could not be saved", e);
         }
     }
+    /*
+     * FIXED CODE:
+     *
+     * Replace the ObjectOutputStream-based saveDraft method above with this DTO
+     * method.
+     *
+     * @Override
+     * public BookingRequest saveDraft(BookingRequest request) {
+     *     if (request == null) {
+     *         throw new IllegalArgumentException("Booking draft is required");
+     *     }
+     *
+     *     return request;
+     * }
+     */
 
     @Override
     public Map<String, Object> importDraft(byte[] draftBytes) {
@@ -315,23 +337,24 @@ public class BookingServiceImpl implements BookingService {
 
         Object importedDraft;
         try (ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(draftBytes))) {
-            importedDraft = input.readObject();
             /*
              * INSECURE DESERIALIZATION SINK: this trusts attacker-controlled Java
              * serialization data.
              *
              * FIXED CODE:
              *
-             * ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
-             * "org.example.payload.BookingRequest;java.util.ArrayList;"
-             * + "java.lang.Integer;java.lang.String;!*"
-             * );
+             * java.io.ObjectInputFilter filter =
+             *         java.io.ObjectInputFilter.Config.createFilter(
+             *                 "maxdepth=8;maxrefs=64;maxbytes=32768;"
+             *                         + "org.example.payload.BookingRequest;"
+             *                         + "java.util.ArrayList;"
+             *                         + "java.lang.Object;"
+             *                         + "java.lang.Integer;"
+             *                         + "java.lang.Number;"
+             *                         + "java.lang.String;!*");
              * input.setObjectInputFilter(filter);
-             * BookingRequest draft = (BookingRequest) input.readObject();
-             *
-             * Better still, replace Java native serialization with JSON and bind it
-             * directly to BookingRequest using Jackson.
              */
+            importedDraft = input.readObject();
         } catch (ClassNotFoundException e) {
             throw new IllegalArgumentException("Booking draft contains an unsupported class");
         } catch (IOException e) {
@@ -348,6 +371,23 @@ public class BookingServiceImpl implements BookingService {
 
         return result;
     }
+
+    /*
+     * FIXED CODE:
+     *
+     * @Override
+     * public Map<String, Object> importDraft(BookingRequest draft, Integer userId) {
+     *     if (draft == null) {
+     *         throw new IllegalArgumentException("Booking draft is required");
+     *     }
+     *
+     *     Map<String, Object> result = new LinkedHashMap<>();
+     *     result.put("status", "DRAFT_IMPORTED");
+     *     result.put("draftType", BookingRequest.class.getName());
+     *     result.put("quote", quote(draft, userId));
+     *     return result;
+     * }
+     */
 
     private List<Transaction> resolveBookingTransactions(BookingRequest request, Integer userId,
             SeatResolutionMode mode) {

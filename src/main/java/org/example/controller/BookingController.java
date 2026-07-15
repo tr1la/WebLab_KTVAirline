@@ -93,6 +93,35 @@ public class BookingController {
             return ResponseEntity.internalServerError().body("Server Error");
         }
     }
+    /*
+     * FIXED CODE:
+     *
+     * Replace the octet-stream .ser save endpoint above with this JSON DTO endpoint.
+     *
+     * @PostMapping(value = "/draft/save", consumes = MediaType.APPLICATION_JSON_VALUE,
+     *         produces = MediaType.APPLICATION_JSON_VALUE)
+     * public ResponseEntity<?> saveDraft(@Valid @RequestBody BookingRequest request,
+     *         Authentication authentication) {
+     *     try {
+     *         Integer userId = getAuthenticatedUserId(authentication);
+     *         if (userId == null) {
+     *             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+     *         }
+     *
+     *         rejectUnsafeBusinessPromotionCode(request);
+     *         BookingRequest draft = bookingService.saveDraft(request);
+     *         return ResponseEntity.ok()
+     *                 .contentType(MediaType.APPLICATION_JSON)
+     *                 .header(HttpHeaders.CONTENT_DISPOSITION,
+     *                         "attachment; filename=\"booking-draft.json\"")
+     *                 .body(draft);
+     *     } catch (IllegalArgumentException e) {
+     *         return ResponseEntity.badRequest().body(e.getMessage());
+     *     } catch (Exception e) {
+     *         return ResponseEntity.internalServerError().body("Server Error");
+     *     }
+     * }
+     */
 
     @PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<?> importDraft(@RequestBody byte[] draftBytes, Authentication authentication) {
@@ -112,14 +141,29 @@ public class BookingController {
         }
     }
     /*
-     * @PostMapping(value = "/draft/import", consumes =
-     * MediaType.APPLICATION_JSON_VALUE)
-     * public ResponseEntity<?> importDraft(@Valid @RequestBody BookingRequest
-     * draft,
-     * Authentication authentication) {
-     * Integer userId = getAuthenticatedUserId(authentication);
-     * rejectUnsafeBusinessPromotionCode(draft);
-     * return ResponseEntity.ok().body(bookingService.quote(draft, userId));
+     * FIXED CODE:
+     *
+     * Replace the octet-stream import endpoint above with this JSON DTO endpoint.
+     *
+     * @PostMapping(value = "/draft/import", consumes = MediaType.APPLICATION_JSON_VALUE)
+     * public ResponseEntity<?> importDraft(@Valid @RequestBody BookingRequest draft,
+     *         Authentication authentication) {
+     *     try {
+     *         Integer userId = getAuthenticatedUserId(authentication);
+     *         if (userId == null) {
+     *             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+     *         }
+     *
+     *         rejectUnsafeBusinessPromotionCode(draft);
+     *         return ResponseEntity.ok().body(bookingService.importDraft(draft, userId));
+     *     } catch (IllegalArgumentException e) {
+     *         return ResponseEntity.badRequest().body(e.getMessage());
+     *     } catch (IllegalStateException e) {
+     *         return ResponseEntity.status(HttpStatus.CONFLICT)
+     *                 .body("Bản nháp không còn khả dụng: " + e.getMessage());
+     *     } catch (Exception e) {
+     *         return ResponseEntity.internalServerError().body("Server Error");
+     *     }
      * }
      */
 

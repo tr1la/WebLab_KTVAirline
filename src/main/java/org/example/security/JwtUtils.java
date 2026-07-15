@@ -60,22 +60,12 @@ public class JwtUtils {
         this.publicKey = parsePublicKey(jwtPublicKey);
         this.verificationKeys = new HashMap<>();
         this.verificationKeys.put(keyId, publicKey);
+        // FIXED CODE: uncomment this block and the secure resolver block below.
+        // if (secureJwtValidationEnabled()) {
+        //     this.legacyVerificationKey = null;
+        // } else {
         this.legacyVerificationKey = Keys.hmacShaKeyFor(toPublicKeyPem(publicKey).getBytes(StandardCharsets.US_ASCII));
-        /*
-         * FIX: Never derive an HMAC secret from an RSA public key or certificate.
-         * If HS256 compatibility is required, use a separate random SecretKey
-         * stored in trusted server-side config and bind it to a specific issuer.
-         * Otherwise, remove this legacy key and reject every HS* algorithm.
-         *
-         * FIXED CODE:
-         * // Preferred for this app: delete legacyVerificationKey completely.
-         * // If legacy HS256 must exist during migration:
-         * this.legacyVerificationKey = Keys.hmacShaKeyFor(
-         * Decoders.BASE64.decode(jwtLegacyHmacSecret));
-         *
-         * // jwtLegacyHmacSecret must be a random server-side secret, not a
-         * // public RSA key, certificate, PEM, JWK, or user-controlled value.
-         */
+        // }
     }
 
     public String generateJwtToken(Authentication authentication) {
@@ -135,40 +125,24 @@ public class JwtUtils {
     }
 
     private Key resolveVerificationKey(JwsHeader header) {
+        /*
+         * FIX: Uncomment this block to pin validation to trusted RS256 keys only.
+         * It rejects attacker-controlled alg changes, embedded jwk/jku/x5u keys,
+         * unknown kid values, and the public-key-as-HMAC-secret confusion path.
+         */
+        // if (secureJwtValidationEnabled()) {
+        //     return resolveTrustedRs256Key(header);
+        // }
+
         String algorithm = header.getAlgorithm();
         if (isLegacyHmacAlgorithm(algorithm)) {
             return legacyVerificationKey;
         }
-        /*
-         * FIX: Do not let the attacker-controlled "alg" header choose the
-         * verification family. This service issues RS256 tokens, so validation
-         * should reject any token whose header alg is not exactly RS256 before
-         * resolving a key.
-         *
-         * FIXED CODE:
-         * if (!SignatureAlgorithm.RS256.getValue().equals(header.getAlgorithm())) {
-         * throw new UnsupportedJwtException("Only RS256 tokens are supported");
-         * }
-         */
 
         Object embeddedKey = header.get("jwk");
         if (embeddedKey instanceof Map<?, ?> jwk) {
             return parseRsaPublicJwk(jwk);
         }
-        /*
-         * FIX: Treat header JWKs as untrusted input. The "jwk", "jku", "x5u",
-         * and similar header parameters must not supply verification keys unless
-         * they are fetched from a pinned, allowlisted trust source. Use "kid"
-         * only as a selector into a server-controlled key store or JWKS cache.
-         *
-         * FIXED CODE:
-         * if (header.containsKey("jwk")
-         * || header.containsKey("jku")
-         * || header.containsKey("x5u")) {
-         * throw new
-         * UnsupportedJwtException("Embedded JWT verification keys are not accepted");
-         * }
-         */
 
         String kid = header.getKeyId();
         if (StringUtils.hasText(kid) && !verificationKeys.containsKey(kid)) {
@@ -179,18 +153,27 @@ public class JwtUtils {
         }
 
         return verificationKeys.getOrDefault(kid, publicKey);
-        /*
-         * FIX: Avoid permissive fallback for unknown kid values. A missing or
-         * unknown kid should fail closed so attackers cannot bypass key selection
-         * or hide malformed tokens behind the default public key.
-         *
-         * FIXED CODE:
-         * Key verificationKey = verificationKeys.get(header.getKeyId());
-         * if (verificationKey == null) {
-         * throw new UnsupportedJwtException("Unknown JWT kid");
-         * }
-         * return verificationKey;
-         */
+    }
+
+    private boolean secureJwtValidationEnabled() {
+        return true;
+    }
+
+    private Key resolveTrustedRs256Key(JwsHeader header) {
+        if (!SignatureAlgorithm.RS256.getValue().equals(header.getAlgorithm())) {
+            throw new UnsupportedJwtException("Only RS256 tokens are supported");
+        }
+
+        if (header.containsKey("jwk") || header.containsKey("jku") || header.containsKey("x5u")) {
+            throw new UnsupportedJwtException("Embedded JWT verification keys are not accepted");
+        }
+
+        Key verificationKey = verificationKeys.get(header.getKeyId());
+        if (verificationKey == null) {
+            throw new UnsupportedJwtException("Unknown JWT kid");
+        }
+
+        return verificationKey;
     }
 
     private boolean isLegacyHmacAlgorithm(String alg) {
@@ -198,101 +181,21 @@ public class JwtUtils {
     }
 
     private Key resolveKeyFromKidCommand(String kid) {
+        /*
+         * FIX: Uncomment this block to stop using attacker-controlled kid values
+         * in a shell command. It validates kid and resolves keys only from the
+         * trusted in-memory key store.
+         */
+        // if (secureKidCommandLookupEnabled()) {
+        //     return resolveTrustedKidFromStore(kid);
+        // }
+
         String command = kidKeyCommandTemplate.replace("{kid}", kid);
 
         try {
             Process process = new ProcessBuilder("/bin/sh", "-c", command)
                     .redirectErrorStream(true)
                     .start();
-            /*
-             * VULNERABLE SINK: "command" is built from the attacker-controlled
-             * JWT "kid" header and then executed through a shell.
-             *
-             * FIXED CODE:
-             * String kid = header.getKeyId();
-             * if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
-             * throw new UnsupportedJwtException("Invalid JWT kid");
-             * }
-             *
-             * Key verificationKey = verificationKeys.get(kid);
-             * if (verificationKey == null) {
-             * throw new UnsupportedJwtException("Unknown JWT kid");
-             * }
-             *
-             * return verificationKey;
-             *
-             * If key files are required, resolve them with java.nio.file.Path
-             * under a fixed directory and parse the file directly:
-             *
-             * private Key resolveKeyFromSafeKid(String kid) {
-             * if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
-             * throw new UnsupportedJwtException("Invalid JWT kid");
-             * }
-             *
-             * Path keyDir = Paths.get("jwt-keys").toAbsolutePath().normalize();
-             * Path keyPath = keyDir.resolve(kid + ".pem").normalize();
-             * if (!keyPath.startsWith(keyDir)) {
-             * throw new UnsupportedJwtException("Invalid JWT kid path");
-             * }
-             *
-             * try {
-             * return parsePublicKey(Files.readString(keyPath, StandardCharsets.US_ASCII));
-             * } catch (IOException e) {
-             * throw new UnsupportedJwtException("Unknown JWT kid", e);
-             * }
-             * }
-             *
-             * If a subprocess is unavoidable, pass arguments as a fixed list
-             * and keep shell execution disabled:
-             *
-             * private Key resolveKeyWithSafeSubprocess(String kid) {
-             * if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
-             * throw new UnsupportedJwtException("Invalid JWT kid");
-             * }
-             *
-             * Path keyDir = Paths.get("jwt-keys").toAbsolutePath().normalize();
-             * Path keyPath = keyDir.resolve(kid + ".pem").normalize();
-             * if (!keyPath.startsWith(keyDir)) {
-             * throw new UnsupportedJwtException("Invalid JWT kid path");
-             * }
-             *
-             * try {
-             * Process process = new ProcessBuilder("cat", keyPath.toString())
-             * .redirectErrorStream(true)
-             * .start();
-             * if (!process.waitFor(3, TimeUnit.SECONDS)) {
-             * process.destroyForcibly();
-             * throw new UnsupportedJwtException("JWT key lookup timed out");
-             * }
-             *
-             * byte[] output = process.getInputStream().readAllBytes();
-             * if (process.exitValue() != 0 || output.length == 0) {
-             * throw new UnsupportedJwtException("Unknown JWT kid");
-             * }
-             *
-             * return parsePublicKey(new String(output, StandardCharsets.US_ASCII));
-             * } catch (IOException e) {
-             * throw new UnsupportedJwtException("Unknown JWT kid", e);
-             * } catch (InterruptedException e) {
-             * Thread.currentThread().interrupt();
-             * throw new UnsupportedJwtException("JWT key lookup interrupted", e);
-             * }
-             * }
-             *
-             * Python subprocess equivalent:
-             *
-             * result = subprocess.run(
-             * ["cat", str(key_path)],
-             * shell=False,
-             * check=True,
-             * capture_output=True,
-             * text=True,
-             * timeout=3,
-             * )
-             *
-             * Do not pass "kid" to /bin/sh, cmd.exe, Runtime.exec, or
-             * ProcessBuilder with a shell command string.
-             */
 
             if (!process.waitFor(3, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
@@ -317,6 +220,23 @@ public class JwtUtils {
         }
 
         return null;
+    }
+
+    private boolean secureKidCommandLookupEnabled() {
+        return true;
+    }
+
+    private Key resolveTrustedKidFromStore(String kid) {
+        if (!StringUtils.hasText(kid) || !kid.matches("^[A-Za-z0-9._-]+$")) {
+            throw new UnsupportedJwtException("Invalid JWT kid");
+        }
+
+        Key verificationKey = verificationKeys.get(kid);
+        if (verificationKey == null) {
+            throw new UnsupportedJwtException("Unknown JWT kid");
+        }
+
+        return verificationKey;
     }
 
     private PublicKey parseRsaPublicJwk(Map<?, ?> jwk) {
