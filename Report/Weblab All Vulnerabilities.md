@@ -5435,12 +5435,12 @@ flowchart TD
 
 ### 5.1. Điều kiện khai thác
 
-| Điều kiện | Ghi chú |
-|---|---|
-| Có JWT user hợp lệ | Endpoint là authenticated |
-| Có `orderId` HOLD | Tạo bằng `/api/v1/booking/hold` |
-| Promotion hợp lệ | Active, đúng route/seat/date/minimum |
-| Gửi request song song | Cần concurrency để cùng vượt qua `hasAppliedPromotion(...)` |
+| Điều kiện                      | Ghi chú                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| Có JWT user hợp lệ             | Endpoint là authenticated                                                        |
+| Có `orderId` HOLD              | Tạo bằng `/api/v1/booking/hold`                                                  |
+| Promotion hợp lệ               | Active, đúng route/seat/date/minimum                                             |
+| Gửi request song song          | Cần concurrency để cùng vượt qua `hasAppliedPromotion(...)`                      |
 | Confirm trước khi hold hết hạn | `validateActiveOrder(...)` yêu cầu status `HOLD` và `holdExpiresAt` còn hiệu lực |
 
 ### 5.2. Race request shape

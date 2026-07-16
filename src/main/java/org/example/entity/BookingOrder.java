@@ -40,12 +40,13 @@ public class BookingOrder extends BaseObject {
     /*
      * FIXED CODE:
      *
-     * // Do not use APPLIED_PROMOTION_CODES as the source of truth for duplicate
-     * // prevention. Keep it only as an optional display snapshot, or remove it and
-     * // read applied codes through the unique BOOKING_ORDER_PROMOTION relation.
+     * // Keep APPLIED_PROMOTION_CODES only as a display snapshot. Do not use it as
+     * // the source of truth for duplicate prevention. The source of truth is the
+     * // unique booking_order_promotion relation below.
      *
+     * @Builder.Default
      * @OneToMany(mappedBy = "order")
-     * private List<BookingOrderPromotion> appliedPromotions = new ArrayList<>();
+     * private java.util.List<BookingOrderPromotion> appliedPromotions = new java.util.ArrayList<>();
      */
 
     @Column(name = "HOLD_EXPIRES_AT")
