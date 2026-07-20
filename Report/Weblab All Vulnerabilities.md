@@ -1699,19 +1699,19 @@ zzzz%') OR <dbms_probe> OR LOWER('a')=LOWER('
 
 Probe theo DBMS:
 
-| DBMS | Probe | Signal nếu đúng |
-|---|---|---|
-| MySQL/MariaDB | `DATABASE() IS NOT NULL` | Không lỗi function, có thể trả `SUCCESS` |
-| MySQL/MariaDB | `IF(1=1,1,0)=1` | `SUCCESS`; false-control `IF(1=2,1,0)=1` trả `NOT_FOUND` |
-| MySQL/MariaDB | `IF(DATABASE() IS NOT NULL,SLEEP(1),0)=0` | Response delay so với baseline |
-| PostgreSQL | `current_database() IS NOT NULL` | Không lỗi function |
-| PostgreSQL | `version() LIKE '%PostgreSQL%'` | `SUCCESS` nếu đúng |
-| SQL Server | `DB_NAME() IS NOT NULL` | Không lỗi function |
-| SQL Server | `@@VERSION LIKE '%Microsoft%'` | `SUCCESS` nếu đúng |
-| Oracle | `SYS_CONTEXT('USERENV','DB_NAME') IS NOT NULL` | Không lỗi function |
-| Oracle | `USER IS NOT NULL` | Không lỗi identifier |
-| SQLite | `sqlite_version() IS NOT NULL` | Không lỗi function |
-| H2 | `DATABASE() IS NOT NULL` hoặc error `Syntax error in SQL statement` | Có thể nhận diện qua error message |
+| DBMS          | Probe                                                               | Signal nếu đúng                                          |
+| ------------- | ------------------------------------------------------------------- | -------------------------------------------------------- |
+| MySQL/MariaDB | `DATABASE() IS NOT NULL`                                            | Không lỗi function, có thể trả `SUCCESS`                 |
+| MySQL/MariaDB | `IF(1=1,1,0)=1`                                                     | `SUCCESS`; false-control `IF(1=2,1,0)=1` trả `NOT_FOUND` |
+| MySQL/MariaDB | `IF(DATABASE() IS NOT NULL,SLEEP(1),0)=0`                           | Response delay so với baseline                           |
+| PostgreSQL    | `current_database() IS NOT NULL`                                    | Không lỗi function                                       |
+| PostgreSQL    | `version() LIKE '%PostgreSQL%'`                                     | `SUCCESS` nếu đúng                                       |
+| SQL Server    | `DB_NAME() IS NOT NULL`                                             | Không lỗi function                                       |
+| SQL Server    | `@@VERSION LIKE '%Microsoft%'`                                      | `SUCCESS` nếu đúng                                       |
+| Oracle        | `SYS_CONTEXT('USERENV','DB_NAME') IS NOT NULL`                      | Không lỗi function                                       |
+| Oracle        | `USER IS NOT NULL`                                                  | Không lỗi identifier                                     |
+| SQLite        | `sqlite_version() IS NOT NULL`                                      | Không lỗi function                                       |
+| H2            | `DATABASE() IS NOT NULL` hoặc error `Syntax error in SQL statement` | Có thể nhận diện qua error message                       |
 
 Ví dụ MySQL/MariaDB:
 
